@@ -53,38 +53,12 @@ jobs:
         run: |
           set -euo pipefail
 
+          cp android/settings.gradle.pinned /tmp/settings.gradle.pinned
+
           flutter create . --project-name multiplatform_ai_video \
             --org com.multipatform.aivideo --platforms=android
 
-          # Overwrite settings.gradle completely (Kotlin 2.2.0 required by wakelock_plus stdlib)
-          python3 -c '
-          open("android/settings.gradle","w").write("""pluginManagement {
-    def flutterSdkPath = {
-        def properties = new Properties()
-        file(\"local.properties\").withInputStream { properties.load(it) }
-        def flutterSdkPath = properties.getProperty(\"flutter.sdk\")
-        assert flutterSdkPath != null, \"flutter.sdk not set in local.properties\"
-        return flutterSdkPath
-    }()
-
-    includeBuild(\"$flutterSdkPath/packages/flutter_tools/gradle\")
-
-    repositories {
-        google()
-        mavenCentral()
-        gradlePluginPortal()
-    }
-}
-
-plugins {
-    id \"dev.flutter.flutter-plugin-loader\" version \"1.0.0\"
-    id \"com.android.application\" version \"8.6.0\" apply false
-    id \"org.jetbrains.kotlin.android\" version \"2.2.0\" apply false
-}
-
-include \":app\"
-""")
-          '
+          cp /tmp/settings.gradle.pinned android/settings.gradle
           rm -f android/settings.gradle.kts
 
           for f in android/app/build.gradle android/app/build.gradle.kts; do
@@ -101,7 +75,7 @@ include \":app\"
             sed -i 's/<application/<application android:usesCleartextTraffic="true"/' "$MANIFEST" || true
           fi
 
-          echo "=== settings.gradle ==="
+          echo "=== settings.gradle (must show Kotlin 2.2.0) ==="
           cat android/settings.gradle
 
       - name: Resolve API base URL
@@ -112,6 +86,7 @@ include \":app\"
             URL="http://10.0.2.2:8000"
           fi
           echo "value=$URL" >> "$GITHUB_OUTPUT"
+          echo "Using API_BASE_URL=$URL"
 
       - name: Install dependencies
         working-directory: mobile_app
