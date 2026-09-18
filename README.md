@@ -22,183 +22,83 @@ cd MultiPlatformAIVideoGenerator
 
 # 2. Virtualenv + cài package
 python -m venv .venv
-# Windows:  .venv\Scripts\activate
-# macOS/Linux:
-source .venv/bin/activate
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
-# 3. Cấu hình API (tối thiểu 2 key để tạo video)
+# 3. Cấu hình API
 cp .env.example .env
-# Mở .env, điền:
-#   GROQ_API_KEY=...          → https://console.groq.com
-#   TOGETHER_API_KEY=...      → https://api.together.xyz
-# (Tuỳ chọn đăng bài: YouTube / TikTok / Facebook – xem bên dưới)
+# Điền GROQ_API_KEY + TOGETHER_API_KEY (và keys platform nếu đăng bài)
 
-# 4. Cài FFmpeg (bắt buộc)
-#   Ubuntu: sudo apt install ffmpeg
-#   macOS:  brew install ffmpeg
-#   Windows: tải từ ffmpeg.org và thêm vào PATH
+# 4. FFmpeg bắt buộc
+# Ubuntu: sudo apt install ffmpeg
 
-# 5. Chạy!
+# 5. CLI
 python main.py
-# hoặc:
-python main.py run --folder demo --topic "5 productivity tips" --style educational
 ```
 
-**Tạo + đăng một lệnh:**
+---
+
+## 📱 Mobile App (Flutter) + FastAPI Backend
+
+### Chạy API server
+
 ```bash
-python main.py run \
-  --folder productivity \
-  --topic "5 tips to stay productive" \
-  --title "5 Productivity Tips #Shorts" \
-  --platforms youtube,facebook \
-  --tags "productivity,tips,ai"
+python api.py
+# → http://0.0.0.0:8000  |  Docs: /docs
 ```
 
-**Chỉ tạo video / chỉ đăng:**
+### Tải APK tự động (GitHub Actions) — không cần cài Flutter
+
+1. Vào repo trên GitHub → tab **Actions**
+2. Chọn workflow **Build Android APK**
+3. Bấm **Run workflow** (có thể nhập `api_base_url`, ví dụ `http://192.168.1.10:8000`)
+4. Đợi job **Flutter APK (release)** hoàn tất
+5. Kéo xuống **Artifacts** → tải **app-release-apk**
+6. Giải nén → file **`app-release.apk`** → cài trên Android
+
+Workflow: `.github/workflows/build_apk.yml`  
+- Tự chạy khi push thay đổi trong `mobile_app/`  
+- Hoặc chạy tay (`workflow_dispatch`)  
+- Artifact giữ **30 ngày**
+
+### Chạy Flutter trên máy
+
 ```bash
-python main.py generate --folder my_video --topic "Your topic here"
-python main.py publish --video output/my_video/final_video_with_captions.mp4 --title "My Short" --platforms youtube
-python main.py status   # xem platform nào đã cấu hình
+cd mobile_app
+flutter create . --project-name multiplatform_ai_video
+flutter pub get
+flutter run --dart-define=API_BASE_URL=http://192.168.1.10:8000
 ```
+
+### Build APK local (tuỳ chọn)
+
+```bash
+cd mobile_app
+flutter build apk --release --dart-define=API_BASE_URL=http://YOUR_SERVER_IP:8000
+# → build/app/outputs/flutter-apk/app-release.apk
+```
+
+Chi tiết: [mobile_app/README.md](mobile_app/README.md)
 
 ---
 
 ## Tính năng
 
-- Sinh kịch bản (Groq / Llama)
-- Sinh ảnh dọc 9:16 (Together AI FLUX)
-- TTS (Kokoro → fallback Edge-TTS)
-- Phụ đề Whisper + burn-in
-- Ghép video MoviePy
-- Đăng đa nền tảng qua `publishers/` (dễ thêm mạng mới)
+- Sinh kịch bản (Groq / Llama), ảnh FLUX, TTS, Whisper captions, MoviePy
+- Đăng YouTube Shorts / TikTok / Facebook Reels
+- CLI + FastAPI + Flutter mobile
 
----
-
-## Cấu trúc thư mục
+## Cấu trúc
 
 ```
-MultiPlatformAIVideoGenerator/
-├── main.py                  # CLI + interactive
-├── requirements.txt
-├── .env.example
-├── config/settings.py       # Load biến môi trường
-├── core/                    # Pipeline tạo video
-│   ├── script_generator.py
-│   ├── image_prompt_generator.py
-│   ├── image_generator.py
-│   ├── audio_generator.py
-│   ├── caption_generator.py
-│   ├── video_composer.py
-│   └── caption_overlay.py
-├── publishers/              # Đăng tải
-│   ├── base.py
-│   ├── youtube.py
-│   ├── tiktok.py
-│   ├── facebook.py
-│   └── registry.py
-├── .github/workflows/ci.yml
-└── output/                  # Kết quả (gitignore)
+├── main.py / api.py
+├── core/  publishers/
+├── mobile_app/          # Flutter
+├── .github/workflows/
+│   ├── ci.yml
+│   └── build_apk.yml    # Build + upload APK artifact
+└── output/
 ```
-
----
-
-## Cấu hình API chi tiết
-
-### 1. Core AI (bắt buộc tạo video)
-
-| Biến | Lấy ở đâu |
-|------|-----------|
-| `GROQ_API_KEY` | [console.groq.com](https://console.groq.com) → API Keys |
-| `TOGETHER_API_KEY` | [api.together.xyz](https://api.together.xyz) → API Keys |
-
-```env
-GROQ_API_KEY=gsk_xxxxxxxx
-TOGETHER_API_KEY=xxxxxxxx
-```
-
-### 2. YouTube Shorts
-
-1. [Google Cloud Console](https://console.cloud.google.com/) → tạo project
-2. Enable **YouTube Data API v3**
-3. Credentials → OAuth client ID → **Desktop app** → tải JSON
-4. Đổi tên thành `client_secrets.json`, đặt ở thư mục gốc project
-5. Lần chạy đầu mở trình duyệt cấp quyền → lưu `token.json`
-
-```env
-YOUTUBE_CLIENT_SECRETS_FILE=client_secrets.json
-YOUTUBE_TOKEN_FILE=token.json
-YOUTUBE_PRIVACY_STATUS=public
-```
-
-> Video dọc ≤ 60s + `#Shorts` trong title/description → YouTube phân loại Short.
-
-### 3. TikTok Content Posting API
-
-1. [developers.tiktok.com](https://developers.tiktok.com) → tạo App
-2. Thêm **Content Posting API**, scope: `video.upload`, `video.publish`
-3. OAuth lấy `access_token` của creator
-
-```env
-TIKTOK_ACCESS_TOKEN=act.xxxxxxxx
-TIKTOK_PRIVACY_LEVEL=PUBLIC_TO_EVERYONE
-# Dev: dùng SELF_ONLY nếu chưa audit
-```
-
-### 4. Facebook Reels (Fanpage)
-
-1. [developers.facebook.com](https://developers.facebook.com) → tạo App
-2. Lấy **Page ID** + **Page Access Token** dài hạn  
-   Quyền: `pages_show_list`, `pages_read_engagement`, `pages_manage_posts`
-
-```env
-FACEBOOK_PAGE_ID=123456789012345
-FACEBOOK_PAGE_ACCESS_TOKEN=EAABsbCS1iHgBO...
-FACEBOOK_API_VERSION=v21.0
-```
-
-### Kiểm tra
-
-```bash
-python main.py status
-```
-
----
-
-## Yêu cầu hệ thống
-
-- Python **3.11+**
-- **FFmpeg** trên PATH (bắt buộc)
-- ImageMagick (khuyến nghị, đặc biệt Windows cho TextClip)
-
----
-
-## Mở rộng nền tảng mới
-
-1. Tạo `publishers/instagram.py` kế thừa `BasePublisher`
-2. Implement `is_configured()` và `publish(...)`
-3. Đăng ký trong `publishers/registry.py`:
-
-```python
-PUBLISHERS = {
-    ...
-    "instagram": InstagramPublisher,
-}
-```
-
-4. Thêm biến vào `.env.example` + `config/settings.py`
-
----
-
-## Lưu ý API
-
-| Nền tảng | Lưu ý |
-|----------|--------|
-| YouTube | Quota riêng; public cần project verified |
-| TikTok | ~6 init/phút/token; audit app để public |
-| Facebook | Chỉ đăng **Page**; video 9:16, ~3–90s |
-
----
 
 ## License
 
