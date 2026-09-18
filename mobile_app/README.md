@@ -35,10 +35,48 @@ flutter pub get
 flutter run
 ```
 
-## Build APK
+## Tải APK qua GitHub Actions (không cần Flutter trên máy)
+
+1. Mở repo trên GitHub → tab **Actions**
+2. Chọn **Build Android APK** → **Run workflow**
+3. (Tuỳ chọn) nhập `api_base_url` (URL FastAPI, ví dụ `http://192.168.1.10:8000`)
+4. Khi job xong → phần **Artifacts** → tải **app-release-apk** → giải nén ra `app-release.apk`
+
+Workflow file: `.github/workflows/build_apk.yml` (tự chạy khi sửa `mobile_app/`, hoặc chạy tay).
+
+## Build APK (Android) trên máy
 
 ```bash
+cd mobile_app
+flutter pub get
 flutter build apk --release \
   --dart-define=API_BASE_URL=http://YOUR_SERVER_IP:8000
-# → build/app/outputs/flutter-apk/app-release.apk
+```
+
+File APK:
+
+```
+build/app/outputs/flutter-apk/app-release.apk
+```
+
+Split APK theo ABI (nhẹ hơn):
+
+```bash
+flutter build apk --split-per-abi --release \
+  --dart-define=API_BASE_URL=http://YOUR_SERVER_IP:8000
+```
+
+## Build App Bundle (Play Store)
+
+```bash
+flutter build appbundle --release \
+  --dart-define=API_BASE_URL=https://your-api.example.com
+```
+
+## Build iOS
+
+```bash
+flutter build ios --release \
+  --dart-define=API_BASE_URL=https://your-api.example.com
+open ios/Runner.xcworkspace
 ```
