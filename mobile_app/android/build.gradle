@@ -1,0 +1,51 @@
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.buildDir = "../build"
+
+subprojects {
+    project.buildDir = "${rootProject.buildDir}/${project.name}"
+}
+
+// Ensure EVERY Android subproject (plugins like package_info_plus) has compileSdk
+subprojects {
+    afterEvaluate { project ->
+        if (project.hasProperty("android")) {
+            try {
+                def android = project.android
+                try {
+                    android.compileSdkVersion(35)
+                } catch (Throwable ignored) {
+                    try {
+                        android.compileSdk = 35
+                    } catch (Throwable ignored2) {
+                    }
+                }
+                try {
+                    if (android.namespace == null || android.namespace.toString().trim().isEmpty()) {
+                        def group = project.group?.toString()
+                        if (group != null && !group.isEmpty()) {
+                            android.namespace = group
+                        } else {
+                            android.namespace = "com.multipatform.plugin.${project.name.replace('-', '_')}"
+                        }
+                    }
+                } catch (Throwable ignored) {
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+}
+
+subprojects {
+    project.evaluationDependsOn(":app")
+}
+
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
+}
