@@ -1,0 +1,76 @@
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+my_config.json
+client_secrets.json
+token.json
+*.token
+credentials.json
+secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project outputs
+output/
+projects/
+*.mp4
+*.mp3
+*.wav
+*.jpeg
+*.jpg
+*.png
+!assets/**
+!docs/**
+
+# Logs & temp
+*.log
+logs/
+tmp/
+temp/
+.cache/
+
+# Whisper model cache
+*.pt
+models/
+
+# Coverage / test
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
