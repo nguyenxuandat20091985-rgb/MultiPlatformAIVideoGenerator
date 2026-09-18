@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       api_base_url:
-        description: "API base URL baked into the APK (e.g. http://192.168.1.10:8000 or https://api.example.com)"
+        description: "API base URL baked into the APK"
         required: false
         default: "http://10.0.2.2:8000"
         type: string
@@ -48,25 +48,59 @@ jobs:
       - name: Flutter doctor
         run: flutter doctor -v
 
-      - name: Ensure Android platform files
+      - name: Prepare Android project
         working-directory: mobile_app
         run: |
-          set -e
-          if [ ! -f android/app/src/main/kotlin/com/multipatform/aivideo/multiplatform_ai_video/MainActivity.kt ] \
-             && [ ! -f android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java ]; then
-            flutter create . --project-name multiplatform_ai_video --org com.multipatform.aivideo --platforms=android
+          set -euo pipefail
+
+          flutter create . --project-name multiplatform_ai_video \
+            --org com.multipatform.aivideo --platforms=android
+
+          SETTINGS="android/settings.gradle"
+          SETTINGS_KTS="android/settings.gradle.kts"
+          if [ -f "$SETTINGS" ]; then
+            sed -i -E 's/(id[[:space:]]+"org\.jetbrains\.kotlin\.android"[[:space:]]+version[[:space:]]+")[^"]+"/\12.0.21"/' "$SETTINGS" || true
+            sed -i -E "s/(id[[:space:]]+'org\.jetbrains\.kotlin\.android'[[:space:]]+version[[:space:]]+')[^']+'/\12.0.21'/" "$SETTINGS" || true
+            sed -i -E 's/(id[[:space:]]+"com\.android\.application"[[:space:]]+version[[:space:]]+")[^"]+"/\18.6.0"/' "$SETTINGS" || true
+            sed -i -E "s/(id[[:space:]]+'com\.android\.application'[[:space:]]+version[[:space:]]+')[^']+'/\18.6.0'/" "$SETTINGS" || true
+            echo "=== settings.gradle plugins ==="
+            grep -nE 'kotlin|android.application' "$SETTINGS" || true
+          fi
+          if [ -f "$SETTINGS_KTS" ]; then
+            sed -i -E 's/(id\("org\.jetbrains\.kotlin\.android"\)[[:space:]]+version[[:space:]]+")[^"]+"/\12.0.21"/' "$SETTINGS_KTS" || true
+            sed -i -E 's/(id\("com\.android\.application"\)[[:space:]]+version[[:space:]]+")[^"]+"/\18.6.0"/' "$SETTINGS_KTS" || true
           fi
 
           for f in android/app/build.gradle android/app/build.gradle.kts; do
             [ -f "$f" ] || continue
             sed -i -E 's/compileSdk(Version)?[[:space:]]*=?[[:space:]]*[0-9]+/compileSdk = 35/' "$f" || true
             sed -i -E 's/targetSdk(Version)?[[:space:]]*=?[[:space:]]*[0-9]+/targetSdk = 35/' "$f" || true
+            sed -i -E 's/JavaVersion\.VERSION_1_8/JavaVersion.VERSION_17/g' "$f" || true
+            sed -i -E "s/jvmTarget[[:space:]]*=[[:space:]]*'1\.8'/jvmTarget = '17'/" "$f" || true
+            sed -i -E 's/jvmTarget[[:space:]]*=[[:space:]]*"1\.8"/jvmTarget = "17"/' "$f" || true
           done
 
           MANIFEST="android/app/src/main/AndroidManifest.xml"
           if [ -f "$MANIFEST" ] && ! grep -q 'usesCleartextTraffic' "$MANIFEST"; then
             sed -i 's/<application/<application android:usesCleartextTraffic="true"/' "$MANIFEST" || true
           fi
+
+          mkdir -p android/app/src/main/res/drawable
+          if [ ! -f android/app/src/main/res/drawable/ic_launcher.xml ]; then
+            cat > android/app/src/main/res/drawable/ic_launcher.xml << 'ICON'
+          <?xml version="1.0" encoding="utf-8"?>
+          <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+              <item>
+                  <shape android:shape="rectangle">
+                      <solid android:color="#5B2EFF"/>
+                  </shape>
+              </item>
+          </layer-list>
+          ICON
+          fi
+
+          echo "=== app build.gradle SDK ==="
+          grep -nE 'compileSdk|targetSdk|minSdk|jvmTarget|VERSION_' android/app/build.gradle android/app/build.gradle.kts 2>/dev/null || true
 
       - name: Resolve API base URL
         id: api_url
@@ -84,7 +118,7 @@ jobs:
           flutter pub get
           flutter pub deps 2>/dev/null | grep -i package_info || true
 
-      - name: Patch plugin Gradle (fix flutter.* on LibraryExtension)
+      - name: Patch plugin Gradle (flutter.* SDK refs)
         run: |
           set -e
           find "$HOME/.pub-cache" -type f -path "*/android/build.gradle" 2>/dev/null | while read -r f; do
@@ -120,6 +154,5 @@ jobs:
       - name: Build summary
         run: |
           echo "## APK ready" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **Artifact:** \`app-release-apk\` → \`app-release.apk\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Artifact:** \`app-release-apk\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- **API_BASE_URL:** \`${{ steps.api_url.outputs.value }}\`" >> "$GITHUB_STEP_SUMMARY"
