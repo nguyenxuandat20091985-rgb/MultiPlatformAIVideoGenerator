@@ -56,20 +56,36 @@ jobs:
           flutter create . --project-name multiplatform_ai_video \
             --org com.multipatform.aivideo --platforms=android
 
-          SETTINGS="android/settings.gradle"
-          SETTINGS_KTS="android/settings.gradle.kts"
-          if [ -f "$SETTINGS" ]; then
-            sed -i -E 's/(id[[:space:]]+"org\.jetbrains\.kotlin\.android"[[:space:]]+version[[:space:]]+")[^"]+"/\12.0.21"/' "$SETTINGS" || true
-            sed -i -E "s/(id[[:space:]]+'org\.jetbrains\.kotlin\.android'[[:space:]]+version[[:space:]]+')[^']+'/\12.0.21'/" "$SETTINGS" || true
-            sed -i -E 's/(id[[:space:]]+"com\.android\.application"[[:space:]]+version[[:space:]]+")[^"]+"/\18.6.0"/' "$SETTINGS" || true
-            sed -i -E "s/(id[[:space:]]+'com\.android\.application'[[:space:]]+version[[:space:]]+')[^']+'/\18.6.0'/" "$SETTINGS" || true
-            echo "=== settings.gradle plugins ==="
-            grep -nE 'kotlin|android.application' "$SETTINGS" || true
-          fi
-          if [ -f "$SETTINGS_KTS" ]; then
-            sed -i -E 's/(id\("org\.jetbrains\.kotlin\.android"\)[[:space:]]+version[[:space:]]+")[^"]+"/\12.0.21"/' "$SETTINGS_KTS" || true
-            sed -i -E 's/(id\("com\.android\.application"\)[[:space:]]+version[[:space:]]+")[^"]+"/\18.6.0"/' "$SETTINGS_KTS" || true
-          fi
+          # Overwrite settings.gradle completely (Kotlin 2.2.0 required by wakelock_plus stdlib)
+          python3 -c '
+          open("android/settings.gradle","w").write("""pluginManagement {
+    def flutterSdkPath = {
+        def properties = new Properties()
+        file(\"local.properties\").withInputStream { properties.load(it) }
+        def flutterSdkPath = properties.getProperty(\"flutter.sdk\")
+        assert flutterSdkPath != null, \"flutter.sdk not set in local.properties\"
+        return flutterSdkPath
+    }()
+
+    includeBuild(\"$flutterSdkPath/packages/flutter_tools/gradle\")
+
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+plugins {
+    id \"dev.flutter.flutter-plugin-loader\" version \"1.0.0\"
+    id \"com.android.application\" version \"8.6.0\" apply false
+    id \"org.jetbrains.kotlin.android\" version \"2.2.0\" apply false
+}
+
+include \":app\"
+""")
+          '
+          rm -f android/settings.gradle.kts
 
           for f in android/app/build.gradle android/app/build.gradle.kts; do
             [ -f "$f" ] || continue
@@ -85,22 +101,8 @@ jobs:
             sed -i 's/<application/<application android:usesCleartextTraffic="true"/' "$MANIFEST" || true
           fi
 
-          mkdir -p android/app/src/main/res/drawable
-          if [ ! -f android/app/src/main/res/drawable/ic_launcher.xml ]; then
-            cat > android/app/src/main/res/drawable/ic_launcher.xml << 'ICON'
-          <?xml version="1.0" encoding="utf-8"?>
-          <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-              <item>
-                  <shape android:shape="rectangle">
-                      <solid android:color="#5B2EFF"/>
-                  </shape>
-              </item>
-          </layer-list>
-          ICON
-          fi
-
-          echo "=== app build.gradle SDK ==="
-          grep -nE 'compileSdk|targetSdk|minSdk|jvmTarget|VERSION_' android/app/build.gradle android/app/build.gradle.kts 2>/dev/null || true
+          echo "=== settings.gradle ==="
+          cat android/settings.gradle
 
       - name: Resolve API base URL
         id: api_url
@@ -110,13 +112,10 @@ jobs:
             URL="http://10.0.2.2:8000"
           fi
           echo "value=$URL" >> "$GITHUB_OUTPUT"
-          echo "Using API_BASE_URL=$URL"
 
       - name: Install dependencies
         working-directory: mobile_app
-        run: |
-          flutter pub get
-          flutter pub deps 2>/dev/null | grep -i package_info || true
+        run: flutter pub get
 
       - name: Patch plugin Gradle (flutter.* SDK refs)
         run: |
@@ -155,4 +154,3 @@ jobs:
         run: |
           echo "## APK ready" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Artifact:** \`app-release-apk\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **API_BASE_URL:** \`${{ steps.api_url.outputs.value }}\`" >> "$GITHUB_STEP_SUMMARY"
