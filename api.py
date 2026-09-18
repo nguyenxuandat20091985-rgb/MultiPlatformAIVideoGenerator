@@ -10,6 +10,7 @@ Exposes REST endpoints so the Flutter mobile app (or any client) can:
 """
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
@@ -106,41 +107,36 @@ class JobResponse(BaseModel):
 
 _jobs: Dict[str, Dict[str, Any]] = {}
 
+PIPELINE_STEPS = [
+    "script",
+    "image_prompts",
+    "images",
+    "audio",
+    "compose",
+    "captions",
+    "publish",
+]
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _init_steps(skip_captions: bool, platforms: List[str]) -> List[Dict[str, str]]:
-    names = ["script", "image_prompts", "images", "audio", "compose"]
-    if not skip_captions:
-        names.append("captions")
-    if platforms:
-        names.append("publish")
-    return [{"name": n, "status": "pending", "message": ""} for n in names]
-
-
-def _update_step(job: Dict[str, Any], name: str, status: str, message: str = "") -> None:
-    for s in job["steps"]:
-        if s["name"] == name:
-            s["status"] = status
-            s["message"] = message
-            break
-    done = sum(1 for s in job["steps"] if s["status"] == "done")
-    total = len(job["steps"]) or 1
-    job["progress_percent"] = int(done / total * 100)
-    job["updated_at"] = _now()
-
-
 def _job_to_response(job: Dict[str, Any]) -> JobResponse:
+    steps = [JobStep(**s) for s in job.get("steps", [])]
+    done = sum(1 for s in steps if s.status == "done")
+    total = max(len(steps), 1)
+    pct = int(100 * done / total)
+    if job.get("status") == JobStatus.completed:
+        pct = 100
     return JobResponse(
         job_id=job["job_id"],
-        status=JobStatus(job["status"]),
+        status=job["status"],
         created_at=job["created_at"],
         updated_at=job["updated_at"],
-        request=job["request"],
-        steps=[JobStep(**s) for s in job["steps"]],
-        progress_percent=job.get("progress_percent", 0),
+        request=job.get("request", {}),
+        steps=steps,
+        progress_percent=pct,
         video_url=job.get("video_url"),
         video_path=job.get("video_path"),
         publish_results=job.get("publish_results"),
@@ -148,80 +144,80 @@ def _job_to_response(job: Dict[str, Any]) -> JobResponse:
     )
 
 
+def _set_step(job: Dict[str, Any], name: str, status: str, message: str = "") -> None:
+    for s in job["steps"]:
+        if s["name"] == name:
+            s["status"] = status
+            s["message"] = message
+            break
+    job["updated_at"] = _now()
+
+
 def _run_pipeline(job_id: str) -> None:
     job = _jobs[job_id]
     req = job["request"]
-    job["status"] = JobStatus.running.value
-    job["updated_at"] = _now()
-
-    folder_name = req.get("folder_name") or f"job_{job_id[:8]}"
-    topic = req["topic"]
-    style = req.get("style") or settings.DEFAULT_VIDEO_STYLE
-    audience = req.get("target_audience") or settings.DEFAULT_TARGET_AUDIENCE
-    cta = req.get("cta") or settings.DEFAULT_CTA
-    skip_captions = bool(req.get("skip_captions"))
-    platforms = [p.lower().strip() for p in (req.get("platforms") or []) if p]
-    title = req.get("title") or topic
-    tags = req.get("tags") or []
-    description = req.get("description") or ""
-
     try:
-        settings.validate_generation()
+        job["status"] = JobStatus.running
+        job["updated_at"] = _now()
 
+        folder_name = req.get("folder_name") or f"job_{job_id[:8]}"
         project = OUTPUT_ROOT / folder_name
         project.mkdir(parents=True, exist_ok=True)
-        (project / "images").mkdir(exist_ok=True)
-        (project / "audio").mkdir(exist_ok=True)
-        (project / "captions").mkdir(exist_ok=True)
 
+        _set_step(job, "script", "running", "Generating script…")
+        script = generate_script(
+            topic=req["topic"],
+            style=req.get("style", "educational"),
+            target_audience=req.get("target_audience", "general"),
+            cta=req.get("cta", "Follow for more!"),
+        )
         script_path = project / "script.json"
+        save_script(script, script_path)
+        _set_step(job, "script", "done", "Script ready")
+
+        _set_step(job, "image_prompts", "running")
         prompts_path = project / "image_prompts.json"
-        images_dir = project / "images"
-        audio_dir = project / "audio"
-        captions_dir = project / "captions"
-        video_path = project / "final_video.mp4"
-        final_path = project / "final_video_with_captions.mp4"
-
-        _update_step(job, "script", "running", "Generating script with AI...")
-        script_data = generate_script(topic, style, audience, cta)
-        save_script(script_data, script_path)
-        _update_step(job, "script", "done", "Script ready")
-
-        _update_step(job, "image_prompts", "running", "Creating image prompts...")
         generate_image_prompts(script_path, prompts_path)
-        _update_step(job, "image_prompts", "done", "Prompts ready")
+        _set_step(job, "image_prompts", "done")
 
-        _update_step(job, "images", "running", "Generating images (FLUX)...")
+        _set_step(job, "images", "running", "Generating images…")
+        images_dir = project / "images"
         generate_images(prompts_path, images_dir)
-        _update_step(job, "images", "done", f"{len(list(images_dir.glob('*.jpeg')))} images")
+        _set_step(job, "images", "done")
 
-        _update_step(job, "audio", "running", "Generating voiceover...")
-        audio_path = generate_audio(script_path, audio_dir)
-        _update_step(job, "audio", "done", "Audio ready")
+        _set_step(job, "audio", "running", "Generating audio…")
+        audio_path = project / "audio.mp3"
+        generate_audio(script_path, audio_path)
+        _set_step(job, "audio", "done")
 
-        _update_step(job, "compose", "running", "Composing video...")
+        _set_step(job, "compose", "running", "Composing video…")
+        video_path = project / "video.mp4"
         compose_video(images_dir, audio_path, video_path)
-        _update_step(job, "compose", "done", "Video composed")
-
         out_video = video_path
-        if not skip_captions:
-            _update_step(job, "captions", "running", "Adding captions...")
-            captions_path = generate_captions(audio_path, captions_dir)
+
+        if not req.get("skip_captions", False):
+            _set_step(job, "captions", "running", "Captions…")
+            captions_path = project / "captions.srt"
+            generate_captions(audio_path, captions_path)
+            final_path = project / "final_video_with_captions.mp4"
             add_captions_to_video(video_path, captions_path, final_path)
             out_video = final_path
-            _update_step(job, "captions", "done", "Captions burned in")
+            _set_step(job, "captions", "done")
+        else:
+            _set_step(job, "captions", "done", "Skipped")
 
         rel = out_video.relative_to(OUTPUT_ROOT).as_posix()
         job["video_path"] = str(out_video)
         job["video_url"] = f"/media/{rel}"
 
+        platforms = [p.lower().strip() for p in req.get("platforms") or [] if p]
         if platforms:
-            _update_step(job, "publish", "running", f"Publishing to {', '.join(platforms)}...")
+            _set_step(job, "publish", "running", f"Publishing to {platforms}…")
             results = publish_to_platforms(
                 video_path=out_video,
-                title=title,
-                description=description,
-                tags=tags,
+                title=req.get("title") or req["topic"],
+                description=req.get("topic", ""),
+                tags=req.get("tags") or [],
                 platforms=platforms,
             )
             job["publish_results"] = [
@@ -234,53 +230,47 @@ def _run_pipeline(job_id: str) -> None:
                 }
                 for r in results
             ]
-            _update_step(job, "publish", "done", "Publish finished")
+            _set_step(job, "publish", "done")
+        else:
+            _set_step(job, "publish", "done", "No platforms selected")
 
-        job["status"] = JobStatus.completed.value
-        job["progress_percent"] = 100
+        job["status"] = JobStatus.completed
         job["updated_at"] = _now()
-
     except Exception as e:
-        job["status"] = JobStatus.failed.value
+        job["status"] = JobStatus.failed
         job["error"] = str(e)
         job["updated_at"] = _now()
         for s in job["steps"]:
             if s["status"] == "running":
                 s["status"] = "error"
                 s["message"] = str(e)
-                break
 
 
 @app.get("/health")
 def health():
     return {
         "status": "ok",
-        "configured_platforms": list_available_publishers(configured_only=True),
-        "all_platforms": list_available_publishers(configured_only=False),
-    }
-
-
-@app.get("/api/v1/platforms")
-def platforms():
-    return {
-        "configured": list_available_publishers(configured_only=True),
-        "all": list_available_publishers(configured_only=False),
+        "platforms": list_available_publishers(),
+        "output_dir": str(OUTPUT_ROOT),
     }
 
 
 @app.post("/api/v1/generate", response_model=JobResponse)
-def start_generate(body: GenerateRequest, background_tasks: BackgroundTasks):
-    job_id = uuid.uuid4().hex
-    platforms = [p.lower().strip() for p in body.platforms if p]
+async def generate(body: GenerateRequest, background_tasks: BackgroundTasks):
+    try:
+        settings.validate_generation()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
+    job_id = uuid.uuid4().hex
+    steps = [{"name": n, "status": "pending", "message": ""} for n in PIPELINE_STEPS]
     job = {
         "job_id": job_id,
-        "status": JobStatus.queued.value,
+        "status": JobStatus.queued,
         "created_at": _now(),
         "updated_at": _now(),
         "request": body.model_dump(),
-        "steps": _init_steps(body.skip_captions, platforms),
-        "progress_percent": 0,
+        "steps": steps,
         "video_url": None,
         "video_path": None,
         "publish_results": None,
@@ -299,12 +289,6 @@ def get_job(job_id: str):
     return _job_to_response(job)
 
 
-@app.get("/api/v1/jobs")
-def list_jobs(limit: int = 20):
-    items = sorted(_jobs.values(), key=lambda j: j["created_at"], reverse=True)[:limit]
-    return [_job_to_response(j) for j in items]
-
-
 @app.get("/api/v1/jobs/{job_id}/video")
 def download_video(job_id: str):
     job = _jobs.get(job_id)
@@ -313,7 +297,11 @@ def download_video(job_id: str):
     path = job.get("video_path")
     if not path or not Path(path).exists():
         raise HTTPException(status_code=404, detail="Video not ready")
-    return FileResponse(path, media_type="video/mp4", filename=Path(path).name)
+    return FileResponse(
+        path,
+        media_type="video/mp4",
+        filename=Path(path).name,
+    )
 
 
 @app.post("/api/v1/publish")
@@ -349,6 +337,10 @@ def publish_only(body: PublishRequest):
 
 
 if __name__ == "__main__":
+    import os
     import uvicorn
 
-    uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)
+    # Hugging Face Spaces expects port 7860; local default via PORT env
+    port = int(os.getenv("PORT", os.getenv("HF_PORT", "7860")))
+    reload = os.getenv("UVICORN_RELOAD", "0") == "1"
+    uvicorn.run("api:app", host="0.0.0.0", port=port, reload=reload)
