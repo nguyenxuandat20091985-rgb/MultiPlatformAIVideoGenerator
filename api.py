@@ -1,16 +1,9 @@
 #!/usr/bin/env python3
 """
 FastAPI backend for MultiPlatformAIVideoGenerator.
-
-Exposes REST endpoints so the Flutter mobile app (or any client) can:
-  - start video generation from a topic
-  - poll job progress
-  - download / preview the finished video
-  - publish to YouTube / TikTok / Facebook
 """
 from __future__ import annotations
 
-import asyncio
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
@@ -63,16 +56,13 @@ class JobStatus(str, Enum):
 
 
 class GenerateRequest(BaseModel):
-    topic: str = Field(..., min_length=3, description="Video topic / subject")
-    title: Optional[str] = Field(None, description="Post title (defaults to topic)")
-    style: str = Field("educational", description="Video style")
-    target_audience: str = Field("general", description="Target audience")
-    cta: str = Field("Follow for more!", description="Call to action")
+    topic: str = Field(..., min_length=3)
+    title: Optional[str] = None
+    style: str = "educational"
+    target_audience: str = "general"
+    cta: str = "Follow for more!"
     tags: List[str] = Field(default_factory=list)
-    platforms: List[str] = Field(
-        default_factory=list,
-        description="Platforms to publish: youtube, tiktok, facebook",
-    )
+    platforms: List[str] = Field(default_factory=list)
     skip_captions: bool = False
     folder_name: Optional[str] = None
 
@@ -163,6 +153,17 @@ def _run_pipeline(job_id: str) -> None:
         folder_name = req.get("folder_name") or f"job_{job_id[:8]}"
         project = OUTPUT_ROOT / folder_name
         project.mkdir(parents=True, exist_ok=True)
+        (project / "images").mkdir(exist_ok=True)
+        (project / "audio").mkdir(exist_ok=True)
+        (project / "captions").mkdir(exist_ok=True)
+
+        script_path = project / "script.json"
+        prompts_path = project / "image_prompts.json"
+        images_dir = project / "images"
+        audio_dir = project / "audio"
+        captions_dir = project / "captions"
+        video_path = project / "final_video.mp4"
+        final_path = project / "final_video_with_captions.mp4"
 
         _set_step(job, "script", "running", "Generating script…")
         script = generate_script(
@@ -171,35 +172,28 @@ def _run_pipeline(job_id: str) -> None:
             target_audience=req.get("target_audience", "general"),
             cta=req.get("cta", "Follow for more!"),
         )
-        script_path = project / "script.json"
         save_script(script, script_path)
         _set_step(job, "script", "done", "Script ready")
 
         _set_step(job, "image_prompts", "running")
-        prompts_path = project / "image_prompts.json"
         generate_image_prompts(script_path, prompts_path)
         _set_step(job, "image_prompts", "done")
 
         _set_step(job, "images", "running", "Generating images…")
-        images_dir = project / "images"
         generate_images(prompts_path, images_dir)
         _set_step(job, "images", "done")
 
         _set_step(job, "audio", "running", "Generating audio…")
-        audio_path = project / "audio.mp3"
-        generate_audio(script_path, audio_path)
+        audio_path = generate_audio(script_path, audio_dir)
         _set_step(job, "audio", "done")
 
         _set_step(job, "compose", "running", "Composing video…")
-        video_path = project / "video.mp4"
         compose_video(images_dir, audio_path, video_path)
         out_video = video_path
 
         if not req.get("skip_captions", False):
             _set_step(job, "captions", "running", "Captions…")
-            captions_path = project / "captions.srt"
-            generate_captions(audio_path, captions_path)
-            final_path = project / "final_video_with_captions.mp4"
+            captions_path = generate_captions(audio_path, captions_dir)
             add_captions_to_video(video_path, captions_path, final_path)
             out_video = final_path
             _set_step(job, "captions", "done")
@@ -210,7 +204,7 @@ def _run_pipeline(job_id: str) -> None:
         job["video_path"] = str(out_video)
         job["video_url"] = f"/media/{rel}"
 
-        platforms = [p.lower().strip() for p in req.get("platforms") or [] if p]
+        platforms = [p.lower().strip() for p in (req.get("platforms") or []) if p]
         if platforms:
             _set_step(job, "publish", "running", f"Publishing to {platforms}…")
             results = publish_to_platforms(
@@ -297,11 +291,7 @@ def download_video(job_id: str):
     path = job.get("video_path")
     if not path or not Path(path).exists():
         raise HTTPException(status_code=404, detail="Video not ready")
-    return FileResponse(
-        path,
-        media_type="video/mp4",
-        filename=Path(path).name,
-    )
+    return FileResponse(path, media_type="video/mp4", filename=Path(path).name)
 
 
 @app.post("/api/v1/publish")
@@ -340,7 +330,6 @@ if __name__ == "__main__":
     import os
     import uvicorn
 
-    # Hugging Face Spaces expects port 7860; local default via PORT env
     port = int(os.getenv("PORT", os.getenv("HF_PORT", "7860")))
     reload = os.getenv("UVICORN_RELOAD", "0") == "1"
     uvicorn.run("api:app", host="0.0.0.0", port=port, reload=reload)
