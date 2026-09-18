@@ -1,17 +1,23 @@
 """
 Central configuration loaded from environment variables.
+Paths are resolved relative to the project root so Docker / Hugging Face Spaces work.
 """
 from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Optional
 
 from dotenv import load_dotenv
 
-# Load .env from project root
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(_PROJECT_ROOT / ".env")
+
+
+def _path_from_env(env_key: str, default_relative: str) -> Path:
+    raw = Path(os.getenv(env_key, default_relative))
+    if not raw.is_absolute():
+        raw = _PROJECT_ROOT / raw
+    return raw
 
 
 class Settings:
@@ -41,10 +47,10 @@ class Settings:
     DEFAULT_VIDEO_STYLE: str = os.getenv("DEFAULT_VIDEO_STYLE", "educational")
     DEFAULT_TARGET_AUDIENCE: str = os.getenv("DEFAULT_TARGET_AUDIENCE", "general")
     DEFAULT_CTA: str = os.getenv("DEFAULT_CTA", "Follow for more!")
-    OUTPUT_DIR: Path = Path(os.getenv("OUTPUT_DIR", "output"))
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
 
     PROJECT_ROOT: Path = _PROJECT_ROOT
+    OUTPUT_DIR: Path = _path_from_env("OUTPUT_DIR", "output")
 
     @classmethod
     def validate_generation(cls) -> None:
@@ -55,15 +61,16 @@ class Settings:
             missing.append("TOGETHER_API_KEY")
         if missing:
             raise ValueError(
-                f"Missing required environment variables for video generation: {', '.join(missing)}. "
-                "Copy .env.example to .env and fill in the values."
+                "Missing required environment variables for video generation: "
+                f"{', '.join(missing)}. "
+                "Set them as Hugging Face Space Secrets or in a local .env file."
             )
 
     @classmethod
     def has_youtube(cls) -> bool:
-        return Path(cls.YOUTUBE_CLIENT_SECRETS_FILE).exists() or Path(
-            cls.YOUTUBE_TOKEN_FILE
-        ).exists()
+        secrets = _path_from_env("YOUTUBE_CLIENT_SECRETS_FILE", "client_secrets.json")
+        token = _path_from_env("YOUTUBE_TOKEN_FILE", "token.json")
+        return secrets.exists() or token.exists()
 
     @classmethod
     def has_tiktok(cls) -> bool:
@@ -75,3 +82,4 @@ class Settings:
 
 
 settings = Settings()
+settings.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
