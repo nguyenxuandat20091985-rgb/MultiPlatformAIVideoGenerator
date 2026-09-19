@@ -1,45 +1,69 @@
-"""Generate images via Google's Gemini native image-generation API."""
+"""Generate images through OpenRouter's unified Images API."""
 from __future__ import annotations
 
 import base64
+import io
 import json
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 import requests
+from PIL import Image
 
 from config.settings import settings
 
 
-GEMINI_INTERACTIONS_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
-IMAGE_MODEL = "gemini-3.1-flash-image"
+OPENROUTER_IMAGES_URL = "https://openrouter.ai/api/v1/images"
 
 
-def _extract_image_data(result: Dict[str, Any]) -> Optional[str]:
-    """Return base64 image data from Gemini's convenience or step response."""
-    output_image = result.get("output_image")
-    if isinstance(output_image, dict) and output_image.get("data"):
-        return output_image["data"]
-
-    for step in result.get("steps", []) or []:
-        for block in step.get("content", []) or []:
-            if isinstance(block, dict) and block.get("type") == "image" and block.get("data"):
-                return block["data"]
-
-    return None
-
-
-def _save_gemini_result(result: Dict[str, Any], image_path: Path) -> None:
-    b64 = _extract_image_data(result)
-    if not b64:
+def _extract_image_bytes(result: Dict[str, Any]) -> bytes:
+    """Extract generated image bytes from OpenRouter's buffered response."""
+    data = result.get("data")
+    if not isinstance(data, list) or not data:
         raise RuntimeError(
-            "Gemini returned no generated image data: "
-            f"{json.dumps(result)[:1200]}"
+            "OpenRouter returned no image data: "
+            f"{json.dumps(result)[:1600]}"
         )
+
+    first = data[0]
+    if not isinstance(first, dict):
+        raise RuntimeError(f"OpenRouter returned an invalid image item: {first!r}")
+
+    b64 = first.get("b64_json") or first.get("b64Json")
+    if b64:
+        try:
+            return base64.b64decode(b64)
+        except Exception as exc:
+            raise RuntimeError(
+                f"OpenRouter returned invalid base64 image data: {exc}"
+            ) from exc
+
+    image_url = first.get("url")
+    if image_url:
+        try:
+            response = requests.get(image_url, timeout=60)
+            response.raise_for_status()
+            return response.content
+        except requests.RequestException as exc:
+            raise RuntimeError(
+                f"OpenRouter image URL download failed: {exc}"
+            ) from exc
+
+    raise RuntimeError(
+        "OpenRouter image response contained neither b64_json nor url: "
+        f"{json.dumps(first)[:1000]}"
+    )
+
+
+def _save_as_png(image_bytes: bytes, image_path: Path) -> None:
+    """Normalize provider output to PNG so the video composer has one stable format."""
     try:
-        image_path.write_bytes(base64.b64decode(b64))
+        with Image.open(io.BytesIO(image_bytes)) as image:
+            image.convert("RGB").save(image_path, format="PNG")
     except Exception as exc:
-        raise RuntimeError(f"Invalid Gemini base64 image response: {exc}") from exc
+        raise RuntimeError(
+            f"OpenRouter returned bytes that are not a valid image: {exc}"
+        ) from exc
 
 
 def _build_prompt(prompt_data: Dict[str, Any]) -> str:
@@ -64,17 +88,20 @@ def _build_prompt(prompt_data: Dict[str, Any]) -> str:
             "vertical 9:16 composition, high quality, no text, no watermark",
         )
     )
-    parts.append("Create a single vertical 9:16 image suitable for a short-form video.")
+    parts.append(
+        "Create a single vertical 9:16 image suitable for a short-form video. "
+        "Do not add text, logos, captions, borders, or watermarks."
+    )
     return ", ".join(p for p in parts if p)
 
 
 def generate_images(image_prompts_path: Path, output_dir: Path) -> None:
     """
-    Generate one image per prompt with Gemini Nano Banana 2.
+    Generate one image per prompt through OpenRouter's dedicated Images API.
     Fails fast on authentication/API/response errors.
     """
-    if not settings.GEMINI_API_KEY:
-        raise ValueError("GEMINI_API_KEY is not set.")
+    if not settings.OPENROUTER_API_KEY:
+        raise ValueError("OPENROUTER_API_KEY is not set.")
 
     with open(image_prompts_path, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -85,62 +112,69 @@ def generate_images(image_prompts_path: Path, output_dir: Path) -> None:
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Remove stale images so an old successful job can never mask a failed generation.
     for old in output_dir.iterdir():
         if old.is_file() and old.suffix.lower() in {".jpeg", ".jpg", ".png", ".webp"}:
             old.unlink()
 
     for i, prompt_data in enumerate(prompts, start=1):
-        print(f"Generating Gemini image {i}/{len(prompts)}...")
+        print(
+            f"Generating OpenRouter image {i}/{len(prompts)} "
+            f"with {settings.OPENROUTER_IMAGE_MODEL}..."
+        )
 
         prompt_text = _build_prompt(prompt_data)
 
         try:
             response = requests.post(
-                GEMINI_INTERACTIONS_URL,
+                OPENROUTER_IMAGES_URL,
                 headers={
-                    "x-goog-api-key": settings.GEMINI_API_KEY,
-                    "content-type": "application/json",
+                    "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
+                    "Content-Type": "application/json",
                 },
                 json={
-                    "model": IMAGE_MODEL,
-                    "input": prompt_text,
-                    "response_format": {
-                        "type": "image",
-                        "mime_type": "image/png",
-                        "aspect_ratio": "9:16",
-                        "image_size": "1K",
-                    },
+                    "model": settings.OPENROUTER_IMAGE_MODEL,
+                    "prompt": prompt_text,
+                    "aspect_ratio": settings.OPENROUTER_IMAGE_ASPECT_RATIO,
+                    "n": 1,
                 },
                 timeout=180,
             )
         except requests.RequestException as exc:
-            raise RuntimeError(f"Gemini image {i} request failed: {exc}") from exc
+            raise RuntimeError(
+                f"OpenRouter image {i} request failed: {exc}"
+            ) from exc
 
         if response.status_code != 200:
-            detail = response.text[:1200].replace("\n", " ")
+            detail = response.text[:1600].replace("\n", " ")
             raise RuntimeError(
-                f"Image {i}/{len(prompts)} failed from Gemini API "
-                f"(HTTP {response.status_code}): {detail}"
+                f"Image {i}/{len(prompts)} failed from OpenRouter "
+                f"(HTTP {response.status_code}) using "
+                f"{settings.OPENROUTER_IMAGE_MODEL}: {detail}"
             )
 
         try:
             result = response.json()
         except ValueError as exc:
             raise RuntimeError(
-                f"Gemini image {i}/{len(prompts)} returned invalid JSON: "
-                f"{response.text[:600]}"
+                f"OpenRouter image {i}/{len(prompts)} returned invalid JSON: "
+                f"{response.text[:800]}"
             ) from exc
 
+        image_bytes = _extract_image_bytes(result)
         image_path = output_dir / f"{i:03d}.png"
-        _save_gemini_result(result, image_path)
+        _save_as_png(image_bytes, image_path)
 
         if image_path.stat().st_size == 0:
-            raise RuntimeError(f"Gemini image {i}/{len(prompts)} was saved but is empty.")
+            raise RuntimeError(
+                f"OpenRouter image {i}/{len(prompts)} was saved but is empty."
+            )
 
         print(f"Saved {image_path}")
 
     created = sorted(
-        p for p in output_dir.iterdir()
+        p
+        for p in output_dir.iterdir()
         if p.is_file() and p.suffix.lower() in {".jpeg", ".jpg", ".png", ".webp"}
     )
     if len(created) != len(prompts):
