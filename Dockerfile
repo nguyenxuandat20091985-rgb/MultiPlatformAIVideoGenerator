@@ -18,6 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         libsndfile1 \
         fonts-dejavu-core \
+        imagemagick \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
