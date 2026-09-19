@@ -35,8 +35,8 @@ def _redact(text: str) -> str:
         r"(sk-or-v1-[A-Za-z0-9_-]+)",
         r"(AIza[A-Za-z0-9_-]+)",
         r"(Bearer\s+)[A-Za-z0-9._~+/=-]+",
-        r"(x-goog-api-key["']?\s*[:=]\s*["']?)[^\s,"'}]+",
-        r"(api[_-]?key["']?\s*[:=]\s*["']?)[^\s,"'}]+",
+        r'''(x-goog-api-key["']?\s*[:=]\s*["']?)[^\s,"'}]+''',
+        r'''(api[_-]?key["']?\s*[:=]\s*["']?)[^\s,"'}]+''',
     ]
     for pattern in patterns:
         text = re.sub(
