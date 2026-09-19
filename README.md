@@ -4,18 +4,24 @@ AI tạo video dọc (Shorts / Reels / TikTok) → **tự động đăng** lên 
 
 ## Image generation failover
 
-The image step supports automatic provider failover:
+The image step uses ordered provider/key failover:
 
-1. **OpenRouter** — uses `openai/gpt-image-2`.
-2. **Gemini** — direct Google Gemini image API using `gemini-3.1-flash-image`.
+1. **Gemini** — direct Google Gemini image API using `gemini-3.1-flash-image`.
+2. **OpenRouter** — image generation through `/api/v1/images` using the configured image model.
 
-Set `IMAGE_PROVIDER_ORDER=openrouter,gemini`. When a provider returns an API/auth/credit error, it is disabled for the rest of that video job and the next configured provider is used automatically. This prevents an unavailable provider from making all remaining scenes fail.
+Set `IMAGE_PROVIDER_ORDER=gemini,openrouter` (the default). Each provider supports up to four keys:
+`GEMINI_API_KEY` through `GEMINI_API_KEY_4`, and
+`OPENROUTER_API_KEY` through `OPENROUTER_API_KEY_4`.
+
+A permanent HTTP authentication/credit/configuration failure (401/402/403/404) disables only that key for the remainder of the current video job. Other configured keys/providers are then tried automatically. Transient failures remain eligible for later scenes.
+
+The application never prints API keys in error messages. Health diagnostics expose only provider configuration state and key counts.
 
 Required for generation:
 - `GROQ_API_KEY`
-- At least one image key: `OPENROUTER_API_KEY` or `GEMINI_API_KEY`
+- At least one image key in either the Gemini or OpenRouter key slots
 
-Gemini's current image API supports 9:16 output and the 3.1 Flash Image model. OpenRouter's current image API also supports centralized routing and image generation. 
+Important: failover cannot make an invalid/suspended key or an account with no image-generation credits usable. Those provider accounts still need valid access/credits.
 
 ## Quickstart
 
