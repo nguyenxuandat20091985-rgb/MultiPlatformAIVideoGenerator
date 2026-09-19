@@ -248,11 +248,15 @@ def health():
         "output_dir": str(OUTPUT_ROOT),
         "generation": {
             "text_provider": "groq",
-            "image_provider": "openrouter",
-            "image_model": settings.OPENROUTER_IMAGE_MODEL,
-            "image_aspect_ratio": settings.OPENROUTER_IMAGE_ASPECT_RATIO,
-            "groq_configured": bool(settings.GROQ_API_KEY),
-            "openrouter_configured": bool(settings.OPENROUTER_API_KEY),
+            "image_provider_order": settings.image_provider_order(),
+            "openrouter": {
+                "configured": bool(settings.OPENROUTER_API_KEY),
+                "model": settings.OPENROUTER_IMAGE_MODEL,
+            },
+            "gemini": {
+                "configured": bool(settings.GEMINI_API_KEY),
+                "model": settings.GEMINI_IMAGE_MODEL,
+            },
         },
     }
 
