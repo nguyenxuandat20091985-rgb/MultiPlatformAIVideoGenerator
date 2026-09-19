@@ -250,6 +250,7 @@ def generate_images(image_prompts_path: Path, output_dir: Path) -> None:
 
     providers = settings.image_provider_order()
     provider_keys = {
+        "openai": _keys(settings.OPENAI_API_KEY, settings.OPENAI_API_KEYS),
         "gemini": _keys(settings.GEMINI_API_KEY, settings.GEMINI_API_KEYS),
         "openrouter": _keys(
             settings.OPENROUTER_API_KEY, settings.OPENROUTER_API_KEYS
