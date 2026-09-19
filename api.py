@@ -97,6 +97,34 @@ class JobResponse(BaseModel):
 
 
 _jobs: Dict[str, Dict[str, Any]] = {}
+JOB_STATE_ROOT = OUTPUT_ROOT / "_jobs"
+JOB_STATE_ROOT.mkdir(parents=True, exist_ok=True)
+
+
+def _job_state_path(job_id: str) -> Path:
+    return JOB_STATE_ROOT / f"{job_id}.json"
+
+
+def _save_job(job: Dict[str, Any]) -> None:
+    path = _job_state_path(job["job_id"])
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(job, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _load_job(job_id: str) -> Optional[Dict[str, Any]]:
+    job = _jobs.get(job_id)
+    if job is not None:
+        return job
+    path = _job_state_path(job_id)
+    if not path.exists():
+        return None
+    try:
+        job = json.loads(path.read_text(encoding="utf-8"))
+        _jobs[job_id] = job
+        return job
+    except (OSError, ValueError, TypeError):
+        return None
 
 PIPELINE_STEPS = [
     "script",
@@ -142,10 +170,13 @@ def _set_step(job: Dict[str, Any], name: str, status: str, message: str = "") ->
             s["message"] = message
             break
     job["updated_at"] = _now()
+    _save_job(job)
 
 
 def _run_pipeline(job_id: str) -> None:
-    job = _jobs[job_id]
+    job = _load_job(job_id)
+    if not job:
+        return
     req = job["request"]
     try:
         job["status"] = JobStatus.running
@@ -252,6 +283,7 @@ def _run_pipeline(job_id: str) -> None:
 
         job["status"] = JobStatus.completed
         job["updated_at"] = _now()
+        _save_job(job)
     except Exception as e:
         job["status"] = JobStatus.failed
         job["error"] = str(e)
@@ -260,6 +292,7 @@ def _run_pipeline(job_id: str) -> None:
             if s["status"] == "running":
                 s["status"] = "error"
                 s["message"] = str(e)
+        _save_job(job)
 
 
 @app.get("/health")
@@ -315,13 +348,14 @@ async def generate(body: GenerateRequest, background_tasks: BackgroundTasks):
         "error": None,
     }
     _jobs[job_id] = job
+    _save_job(job)
     background_tasks.add_task(_run_pipeline, job_id)
     return _job_to_response(job)
 
 
 @app.get("/api/v1/jobs/{job_id}", response_model=JobResponse)
 def get_job(job_id: str):
-    job = _jobs.get(job_id)
+    job = _load_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return _job_to_response(job)
@@ -329,7 +363,7 @@ def get_job(job_id: str):
 
 @app.get("/api/v1/jobs/{job_id}/video")
 def download_video(job_id: str):
-    job = _jobs.get(job_id)
+    job = _load_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     path = job.get("video_path")
