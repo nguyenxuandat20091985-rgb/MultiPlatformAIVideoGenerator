@@ -11,7 +11,21 @@ services:
       - key: GROQ_API_KEY
         sync: false
       - key: IMAGE_PROVIDER_ORDER
-        value: gemini,openrouter
+        value: openai,gemini,openrouter
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY_2
+        sync: false
+      - key: OPENAI_API_KEY_3
+        sync: false
+      - key: OPENAI_API_KEY_4
+        sync: false
+      - key: OPENAI_IMAGE_MODEL
+        value: gpt-image-2
+      - key: OPENAI_IMAGE_SIZE
+        value: 1024x1536
+      - key: OPENAI_IMAGE_QUALITY
+        value: auto
       - key: OPENROUTER_API_KEY
         sync: false
       - key: OPENROUTER_API_KEY_2
