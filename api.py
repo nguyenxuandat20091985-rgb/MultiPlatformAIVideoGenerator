@@ -14,7 +14,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -407,9 +407,11 @@ async def worker_run(body: WorkerRunRequest, background_tasks: BackgroundTasks):
 
 
 @app.post("/internal/worker/callback")
-async def worker_callback(payload: Dict[str, Any]):
-    token = payload.pop("_worker_callback_token", None)
-    if token != settings.VIDEO_WORKER_TOKEN:
+async def worker_callback(
+    payload: Dict[str, Any],
+    worker_token: str = Header(default="", alias="X-Worker-Token"),
+):
+    if worker_token != settings.VIDEO_WORKER_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid worker token")
     job_id = payload.get("job_id")
     if not job_id:
