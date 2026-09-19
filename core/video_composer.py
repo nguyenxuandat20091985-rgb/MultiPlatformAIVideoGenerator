@@ -50,7 +50,7 @@ def compose_video(
     """
     Create a vertical MP4 while streaming image frames through FFmpeg.
 
-    The Render-safe profile is 720x1280/24fps with a single encoder thread.
+    The Render-safe profile is 480x854/20fps with a single encoder/filter thread.
     This intentionally trades some encoding quality/speed for predictable RAM
     usage on small instances and avoids worker crashes/502 responses.
     """
@@ -92,6 +92,8 @@ def compose_video(
         "-map", "0:v:0", "-map", "1:a:0",
         "-t", f"{duration:.3f}",
         "-r", "20",
+        "-filter_threads", "1",
+        "-filter_complex_threads", "1",
         "-c:v", "libx264",
         "-preset", "ultrafast",
         "-tune", "stillimage",
