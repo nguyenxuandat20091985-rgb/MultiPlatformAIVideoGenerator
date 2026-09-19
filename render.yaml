@@ -60,5 +60,15 @@ services:
         sync: false
       - key: OUTPUT_DIR
         value: output
+      - key: VIDEO_WORKER_URL
+        sync: false
+      - key: VIDEO_WORKER_TOKEN
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: WORKER_MODE
+        value: "0"
+      - key: WORKER_TOKEN
+        sync: false
       - key: PYTHONUNBUFFERED
         value: "1"
