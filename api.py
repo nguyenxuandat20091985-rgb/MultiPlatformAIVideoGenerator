@@ -246,6 +246,14 @@ def health():
         "status": "ok",
         "platforms": list_available_publishers(),
         "output_dir": str(OUTPUT_ROOT),
+        "generation": {
+            "text_provider": "groq",
+            "image_provider": "openrouter",
+            "image_model": settings.OPENROUTER_IMAGE_MODEL,
+            "image_aspect_ratio": settings.OPENROUTER_IMAGE_ASPECT_RATIO,
+            "groq_configured": bool(settings.GROQ_API_KEY),
+            "openrouter_configured": bool(settings.OPENROUTER_API_KEY),
+        },
     }
 
 
