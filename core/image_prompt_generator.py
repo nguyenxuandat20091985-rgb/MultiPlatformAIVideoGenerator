@@ -60,7 +60,7 @@ Rules:
 """
 
     response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model=settings.GROQ_MODEL,
         messages=[
             {"role": "system", "content": "You output only valid JSON."},
             {"role": "user", "content": prompt},
