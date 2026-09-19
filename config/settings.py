@@ -113,7 +113,7 @@ class Settings:
             provider = raw.strip().lower()
             if provider and provider not in providers:
                 providers.append(provider)
-        return providers or ["openrouter", "gemini"]
+        return providers or ["openai", "gemini", "openrouter"]
 
     @classmethod
     def validate_generation(cls) -> None:
@@ -122,13 +122,15 @@ class Settings:
             missing.append("GROQ_API_KEY")
 
         image_provider_configured = bool(
-            cls.OPENROUTER_API_KEY
+            cls.OPENAI_API_KEY
+            or any(cls.OPENAI_API_KEYS)
+            or cls.OPENROUTER_API_KEY
             or any(cls.OPENROUTER_API_KEYS)
             or cls.GEMINI_API_KEY
             or any(cls.GEMINI_API_KEYS)
         )
         if not image_provider_configured:
-            missing.append("OPENROUTER_API_KEY or GEMINI_API_KEY")
+            missing.append("OPENAI_API_KEY, OPENROUTER_API_KEY, or GEMINI_API_KEY")
 
         if missing:
             raise ValueError(
