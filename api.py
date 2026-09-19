@@ -5,6 +5,7 @@ FastAPI backend for MultiPlatformAIVideoGenerator.
 from __future__ import annotations
 
 import asyncio
+import gc
 import json
 import uuid
 from datetime import datetime, timezone
@@ -197,6 +198,17 @@ def _job_to_response(job: Dict[str, Any]) -> JobResponse:
     )
 
 
+def _release_memory() -> None:
+    """Return reclaimable Python memory to the OS between heavy pipeline stages."""
+    gc.collect()
+    try:
+        import ctypes
+        libc = ctypes.CDLL("libc.so.6")
+        libc.malloc_trim(0)
+    except (OSError, AttributeError):
+        pass
+
+
 def _set_step(job: Dict[str, Any], name: str, status: str, message: str = "") -> None:
     for s in job["steps"]:
         if s["name"] == name:
@@ -255,8 +267,10 @@ def _run_pipeline(job_id: str) -> None:
                 "done",
                 f"Images ready; {fallback_count} local fallback frame(s) used because remote image providers were unavailable.",
             )
-        else:
-            _set_step(job, "images", "done", "Images ready")
+        _release_memory()
+        if not image_report.get("fallback_used"):
+            _release_memory()
+        _set_step(job, "images", "done", "Images ready")
 
         _set_step(job, "audio", "running", "Generating audio…")
         audio_path = generate_audio(script_path, audio_dir)
@@ -271,9 +285,11 @@ def _run_pipeline(job_id: str) -> None:
             _set_step(job, "audio", "done", "Audio fallback used; video will continue without remote TTS.")
         else:
             _set_step(job, "audio", "done")
+        _release_memory()
 
         _set_step(job, "compose", "running", "Composing video…")
         compose_video(images_dir, audio_path, video_path)
+        _release_memory()
         out_video = video_path
 
         if not req.get("skip_captions", False) and not audio_report.get("fallback_used"):
