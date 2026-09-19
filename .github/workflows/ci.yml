@@ -29,6 +29,7 @@ jobs:
       - name: Syntax check
         run: |
           python -m py_compile main.py
+          python -m py_compile api.py
           python -m py_compile config/settings.py
           find core publishers -name "*.py" -exec python -m py_compile {} +
 
@@ -37,4 +38,4 @@ jobs:
           python -c "from publishers import list_available_publishers; print(list_available_publishers())"
         env:
           GROQ_API_KEY: dummy
-          TOGETHER_API_KEY: dummy
+          OPENROUTER_API_KEY: dummy
