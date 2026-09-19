@@ -1,0 +1,11 @@
+services:
+  video-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - worker.env
+    ports:
+      - "8000:8000"
+    command: ["python", "-c", "import os,uvicorn; uvicorn.run('worker:app', host='0.0.0.0', port=int(os.getenv('PORT','8000')))" ]
