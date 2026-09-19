@@ -267,10 +267,9 @@ def _run_pipeline(job_id: str) -> None:
                 "done",
                 f"Images ready; {fallback_count} local fallback frame(s) used because remote image providers were unavailable.",
             )
+        else:
+            _set_step(job, "images", "done", "Images ready")
         _release_memory()
-        if not image_report.get("fallback_used"):
-            _release_memory()
-        _set_step(job, "images", "done", "Images ready")
 
         _set_step(job, "audio", "running", "Generating audio…")
         audio_path = generate_audio(script_path, audio_dir)
