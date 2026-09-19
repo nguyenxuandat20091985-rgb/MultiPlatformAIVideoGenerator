@@ -191,6 +191,7 @@ PIPELINE_STEPS = [
     "audio",
     "compose",
     "captions",
+    "qa",
     "publish",
 ]
 
