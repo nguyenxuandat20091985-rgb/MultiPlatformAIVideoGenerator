@@ -8,6 +8,7 @@ import asyncio
 import gc
 import json
 import os
+import threading
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
@@ -243,7 +244,17 @@ def _set_step(job: Dict[str, Any], name: str, status: str, message: str = "") ->
     _save_job(job)
 
 
+WORKER_MAX_CONCURRENCY = max(1, int(os.getenv("WORKER_MAX_CONCURRENCY", "1")))
+_WORKER_SEMAPHORE = threading.BoundedSemaphore(WORKER_MAX_CONCURRENCY)
+
+
 def _run_pipeline(job_id: str) -> None:
+    """Run one pipeline while respecting the worker concurrency limit."""
+    with _WORKER_SEMAPHORE:
+        _run_pipeline_impl(job_id)
+
+
+def _run_pipeline_impl(job_id: str) -> None:
     job = _load_job(job_id)
     if not job:
         return
@@ -443,6 +454,8 @@ def health():
     gemini_keys = [settings.GEMINI_API_KEY, *settings.GEMINI_API_KEYS]
     return {
         "status": "ok",
+        "worker_mode": settings.WORKER_MODE,
+        "worker_max_concurrency": WORKER_MAX_CONCURRENCY,
         "platforms": list_available_publishers(),
         "output_dir": str(OUTPUT_ROOT),
         "generation": {
