@@ -2,75 +2,48 @@
 
 AI tạo video dọc (Shorts / Reels / TikTok) → **tự động đăng** lên YouTube, TikTok, Facebook.
 
-| Nền tảng | API | Trạng thái |
-|----------|-----|------------|
-| **YouTube Shorts** | YouTube Data API v3 | ✅ |
-| **TikTok** | Content Posting API | ✅ |
-| **Facebook Reels** | Graph API (Page) | ✅ |
-| Instagram / LinkedIn / X… | Extensible | 🔧 Sẵn cấu trúc |
+## Image generation failover
 
-Dựa trên [GabrielLaxy/TikTokAIVideoGenerator](https://github.com/GabrielLaxy/TikTokAIVideoGenerator), tái cấu trúc + mở rộng multi-platform.
+The image step supports automatic provider failover:
 
----
+1. **OpenRouter** — uses `openai/gpt-image-2`.
+2. **Gemini** — direct Google Gemini image API using `gemini-3.1-flash-image`.
 
-## ⚡ Quickstart
+Set `IMAGE_PROVIDER_ORDER=openrouter,gemini`. When a provider returns an API/auth/credit error, it is disabled for the rest of that video job and the next configured provider is used automatically. This prevents an unavailable provider from making all remaining scenes fail.
+
+Required for generation:
+- `GROQ_API_KEY`
+- At least one image key: `OPENROUTER_API_KEY` or `GEMINI_API_KEY`
+
+Gemini's current image API supports 9:16 output and the 3.1 Flash Image model. OpenRouter's current image API also supports centralized routing and image generation. 
+
+## Quickstart
 
 ```bash
-git clone https://github.com/nguyenxuandat20091985-rgb/MultiPlatformAIVideoGenerator.git
-cd MultiPlatformAIVideoGenerator
-
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-
-# Cấu hình API
 cp .env.example .env
-# Điền GROQ_API_KEY + OPENROUTER_API_KEY
-
-# FFmpeg bắt buộc
-# Ubuntu: sudo apt install ffmpeg
-
+# Fill GROQ_API_KEY and one or both image-provider keys
 python main.py
 ```
 
-## 📱 Mobile App (Flutter) + FastAPI Backend
-
-### Chạy API server
+## API
 
 ```bash
 python api.py
-# → http://0.0.0.0:8000  |  Docs: /docs
+# http://0.0.0.0:8000  |  Docs: /docs
 ```
 
-### Tải APK tự động (GitHub Actions)
+## Mobile App
 
-1. Vào repo trên GitHub → tab **Actions**
-2. Chọn workflow **Build Android APK**
-3. Bấm **Run workflow** (có thể nhập `api_base_url`)
-4. Đợi job **Flutter APK (release)** hoàn tất
-5. Tải artifact **app-release-apk** và cài `app-release.apk`
+The existing Flutter mobile app calls the FastAPI backend and can continue using the same API endpoint.
 
-Workflow: `.github/workflows/build_apk.yml`
+## Features
 
-## Tính năng
-
-- Sinh kịch bản (Groq / Llama), sinh prompt ảnh (Groq / Llama)
-- Sinh ảnh dọc 9:16 qua **OpenRouter Images API**
-- TTS, Whisper captions, MoviePy
-- Đăng YouTube Shorts / TikTok / Facebook Reels
-- CLI + FastAPI + Flutter mobile
-
-## Cấu trúc
-
-```
-├── main.py / api.py
-├── config/  core/  publishers/
-├── mobile_app/
-├── .github/workflows/
-│   ├── ci.yml
-│   └── build_apk.yml
-└── output/
-```
+- Script generation with Groq
+- Rich image prompts with Groq
+- Image generation with OpenRouter + Gemini failover
+- TTS + Whisper captions + MoviePy
+- YouTube Shorts / TikTok / Facebook Reels publishing
+- FastAPI + Flutter mobile app
 
 ## License
 
