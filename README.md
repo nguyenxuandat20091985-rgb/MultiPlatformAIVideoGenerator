@@ -46,6 +46,40 @@ The existing Flutter mobile app calls the FastAPI backend and can continue using
 - YouTube Shorts / TikTok / Facebook Reels publishing
 - FastAPI + Flutter mobile app
 
+## Remote video worker
+
+For video jobs that exceed the RAM available on a small web instance, the API can
+delegate the heavy pipeline to a separate Worker. Render remains the public API
+and job-status endpoint; the Worker runs FFmpeg/AI processing and exposes the
+finished video through its own `/media` URL.
+
+Architecture:
+
+```
+App → Render API → Video Worker (large RAM) → /media video
+                  ↑ job status/callback
+```
+
+Set these variables on Render:
+- `VIDEO_WORKER_URL`: public HTTPS URL of the Worker.
+- `VIDEO_WORKER_TOKEN`: shared secret between Render and Worker.
+- `PUBLIC_BASE_URL`: public HTTPS URL of the Render API.
+- `WORKER_MODE=0`.
+
+Set these variables on the Worker:
+- `WORKER_MODE=1`
+- `WORKER_TOKEN`: the same value as Render's `VIDEO_WORKER_TOKEN`.
+- `PUBLIC_BASE_URL`: public HTTPS URL of the Worker.
+- Copy the AI/provider environment variables required by the existing pipeline.
+
+The Worker can use the same Docker image with the `worker.py` entrypoint.
+`docker-compose.worker.yml` is included for a VM deployment.
+
+The Render Free web service remains limited to 512 MB RAM, so this separation is
+designed to keep FFmpeg/AI memory usage away from the API process. Render's
+current compute documentation lists 512 MB for the Free web service and paid
+plans for larger worker instances. 
+
 ## License
 
 MIT
