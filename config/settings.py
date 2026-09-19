@@ -26,9 +26,18 @@ class Settings:
     # Keep the model configurable because provider model IDs can be retired.
     GROQ_MODEL: str = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 
-    # Image generation
+    # Image generation via OpenRouter
+    OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
+    OPENROUTER_IMAGE_MODEL: str = os.getenv(
+        "OPENROUTER_IMAGE_MODEL", "openai/gpt-image-2"
+    )
+    OPENROUTER_IMAGE_ASPECT_RATIO: str = os.getenv(
+        "OPENROUTER_IMAGE_ASPECT_RATIO", "9:16"
+    )
+
+    # Legacy provider keys are retained so older deployments do not crash on import.
+    # They are no longer used by the image pipeline.
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-    # Kept for backward compatibility; image generation now uses Gemini.
     TOGETHER_API_KEY: str = os.getenv("TOGETHER_API_KEY", "")
 
     # YouTube
@@ -63,8 +72,8 @@ class Settings:
         missing = []
         if not cls.GROQ_API_KEY:
             missing.append("GROQ_API_KEY")
-        if not cls.GEMINI_API_KEY:
-            missing.append("GEMINI_API_KEY")
+        if not cls.OPENROUTER_API_KEY:
+            missing.append("OPENROUTER_API_KEY")
         if missing:
             raise ValueError(
                 "Missing required environment variables for video generation: "
