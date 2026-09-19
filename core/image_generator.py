@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import json
 import re
@@ -9,7 +10,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 import requests
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from config.settings import settings
 
@@ -235,7 +236,58 @@ def _generate_gemini(prompt_text: str, api_key: str) -> bytes:
     return _extract_gemini_image_bytes(result)
 
 
-def generate_images(image_prompts_path: Path, output_dir: Path) -> None:
+def _generate_local_fallback(prompt_text: str, image_path: Path, index: int) -> None:
+    """Create a deterministic local visual so one provider outage cannot kill a video job.
+
+    This is intentionally a visual fallback, not an AI-generated image. It uses only
+    Pillow and the prompt hash to create a varied vertical background that the video
+    composer can always consume when every remote image provider is unavailable.
+    """
+    seed = hashlib.sha256(f"{index}:{prompt_text}".encode("utf-8")).digest()
+    width, height = 1080, 1920
+    colors = [
+        tuple(seed[i] for i in (0, 1, 2)),
+        tuple(seed[i] for i in (8, 9, 10)),
+        tuple(seed[i] for i in (16, 17, 18)),
+    ]
+    image = Image.new("RGB", (width, height), colors[0])
+    draw = ImageDraw.Draw(image, "RGBA")
+
+    # Smooth-enough vertical gradient made from inexpensive horizontal bands.
+    bands = 48
+    for band in range(bands):
+        t = band / max(bands - 1, 1)
+        if t < 0.5:
+            a, b, local_t = colors[0], colors[1], t * 2
+        else:
+            a, b, local_t = colors[1], colors[2], (t - 0.5) * 2
+        color = tuple(int(a[i] * (1 - local_t) + b[i] * local_t) for i in range(3))
+        y0 = int(height * band / bands)
+        y1 = int(height * (band + 1) / bands)
+        draw.rectangle((0, y0, width, y1), fill=(*color, 255))
+
+    # Large abstract shapes keep fallback frames visually useful without inventing
+    # text or external assets. Positions/sizes are deterministic per prompt.
+    x1 = 100 + seed[20] * 3
+    y1 = 120 + seed[21] * 5
+    r1 = 220 + seed[22] * 2
+    x2 = 650 + seed[23] * 2
+    y2 = 760 + seed[24] * 3
+    r2 = 180 + seed[25] * 3
+    x3 = 120 + seed[26] * 4
+    y3 = 1370 + seed[27] * 2
+    r3 = 260 + seed[28]
+    draw.ellipse((x1 - r1, y1 - r1, x1 + r1, y1 + r1), fill=(*colors[2], 105))
+    draw.ellipse((x2 - r2, y2 - r2, x2 + r2, y2 + r2), fill=(*colors[0], 125))
+    draw.ellipse((x3 - r3, y3 - r3, x3 + r3, y3 + r3), fill=(*colors[1], 95))
+    draw.polygon(
+        [(0, height * 0.68), (width, height * 0.48), (width, height), (0, height)],
+        fill=(*colors[0], 80),
+    )
+    image.save(image_path, format="PNG", optimize=True)
+
+
+def generate_images(image_prompts_path: Path, output_dir: Path) -> dict[str, Any]:
     with open(image_prompts_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
@@ -269,6 +321,8 @@ def generate_images(image_prompts_path: Path, output_dir: Path) -> None:
         )
 
     generated = 0
+    fallback_count = 0
+    provider_failure_count = 0
     # Permanent authentication/credit failures should not be retried for every scene.
     # Transient failures (including rate limits) remain eligible for the next scene.
     disabled_keys: set[tuple[str, int]] = set()
@@ -307,6 +361,7 @@ def generate_images(image_prompts_path: Path, output_dir: Path) -> None:
                     saved = True
                     break
                 except Exception as exc:
+                    provider_failure_count += 1
                     safe_error = _friendly_provider_error(provider, str(exc))
                     errors.append(
                         f"{provider} key #{key_index}: {safe_error}"
@@ -324,17 +379,34 @@ def generate_images(image_prompts_path: Path, output_dir: Path) -> None:
                 break
 
         if not saved:
-            active = sum(1 for p in available for k in provider_keys[p] if (p, provider_keys[p].index(k) + 1) not in disabled_keys)
             summary = " | ".join(errors)
-            raise RuntimeError(
-                f"Image {i}/{len(prompts)} failed. "
-                f"All currently usable image keys/providers were tried. "
-                f"Active fallback keys remaining: {active}. "
-                f"Details: {summary}"
-            )
+            image_path = output_dir / f"{i:03d}.png"
+            try:
+                _generate_local_fallback(prompt_text, image_path, i)
+                if image_path.stat().st_size == 0:
+                    raise RuntimeError("local fallback image is empty")
+                generated += 1
+                fallback_count += 1
+                saved = True
+                print(
+                    f"Image {i}/{len(prompts)}: all remote image providers failed; "
+                    "using local visual fallback so the video can continue."
+                )
+            except Exception as fallback_exc:
+                raise RuntimeError(
+                    f"Image {i}/{len(prompts)} failed even after local fallback. "
+                    f"Provider errors: {summary}. "
+                    f"Fallback error: {_redact(fallback_exc)}"
+                ) from fallback_exc
 
-    if generated != len(prompts):
-        raise RuntimeError(
-            f"Image generation incomplete: created {generated} of "
-            f"{len(prompts)} required images."
-        )
+    report = {
+        "total": len(prompts),
+        "generated": generated,
+        "ai_generated": generated - fallback_count,
+        "local_fallback": fallback_count,
+        "provider_failures": provider_failure_count,
+        "fallback_used": fallback_count > 0,
+    }
+    with open(output_dir / "image_generation_report.json", "w", encoding="utf-8") as f:
+        json.dump(report, f, ensure_ascii=False, indent=2)
+    return report
