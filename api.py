@@ -242,6 +242,7 @@ def _run_pipeline(job_id: str) -> None:
 
 @app.get("/health")
 def health():
+    openai_keys = [settings.OPENAI_API_KEY, *settings.OPENAI_API_KEYS]
     openrouter_keys = [settings.OPENROUTER_API_KEY, *settings.OPENROUTER_API_KEYS]
     gemini_keys = [settings.GEMINI_API_KEY, *settings.GEMINI_API_KEYS]
     return {
@@ -251,6 +252,11 @@ def health():
         "generation": {
             "text_provider": "groq",
             "image_provider_order": settings.image_provider_order(),
+            "openai": {
+                "configured": any(openai_keys),
+                "key_count": sum(bool(k) for k in openai_keys),
+                "model": settings.OPENAI_IMAGE_MODEL,
+            },
             "openrouter": {
                 "configured": any(openrouter_keys),
                 "key_count": sum(bool(k) for k in openrouter_keys),
