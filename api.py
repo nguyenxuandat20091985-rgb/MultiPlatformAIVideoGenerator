@@ -242,6 +242,8 @@ def _run_pipeline(job_id: str) -> None:
 
 @app.get("/health")
 def health():
+    openrouter_keys = [settings.OPENROUTER_API_KEY, *settings.OPENROUTER_API_KEYS]
+    gemini_keys = [settings.GEMINI_API_KEY, *settings.GEMINI_API_KEYS]
     return {
         "status": "ok",
         "platforms": list_available_publishers(),
@@ -250,11 +252,13 @@ def health():
             "text_provider": "groq",
             "image_provider_order": settings.image_provider_order(),
             "openrouter": {
-                "configured": bool(settings.OPENROUTER_API_KEY),
+                "configured": any(openrouter_keys),
+                "key_count": sum(bool(k) for k in openrouter_keys),
                 "model": settings.OPENROUTER_IMAGE_MODEL,
             },
             "gemini": {
-                "configured": bool(settings.GEMINI_API_KEY),
+                "configured": any(gemini_keys),
+                "key_count": sum(bool(k) for k in gemini_keys),
                 "model": settings.GEMINI_IMAGE_MODEL,
             },
         },
