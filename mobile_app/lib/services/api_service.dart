@@ -7,7 +7,6 @@ import 'package:http/http.dart' as http;
 import '../models/job.dart';
 import 'settings_service.dart';
 
-/// Friendly network / API errors for UI.
 class ApiException implements Exception {
   ApiException(this.message, {this.cause});
   final String message;
@@ -17,7 +16,6 @@ class ApiException implements Exception {
   String toString() => message;
 }
 
-/// Backend client. Base URL can be changed at runtime (device settings).
 class ApiService {
   ApiService({String? baseUrl})
       : baseUrl = _normalize(
@@ -30,8 +28,25 @@ class ApiService {
 
   String baseUrl;
 
-  static String _normalize(String url) =>
-      url.trim().replaceAll(RegExp(r'/+$'), '');
+  static String _normalize(String url) {
+    var u = url.trim().replaceAll(RegExp(r'/+$'), '');
+    if (!u.startsWith('http://') && !u.startsWith('https://')) {
+      final host = u.toLowerCase();
+      if (host.contains('onrender.com') ||
+          host.contains('hf.space') ||
+          host.contains('railway.app') ||
+          host.contains('fly.dev')) {
+        u = 'https://$u';
+      } else {
+        u = 'http://$u';
+      }
+    }
+    if (u.startsWith('http://') &&
+        (u.contains('onrender.com') || u.contains('hf.space'))) {
+      u = 'https://${u.substring('http://'.length)}';
+    }
+    return u;
+  }
 
   void setBaseUrl(String url) {
     baseUrl = _normalize(url);
@@ -49,18 +64,20 @@ class ApiService {
     try {
       return await action().timeout(timeout);
     } on TimeoutException {
+      final isCloud = baseUrl.contains('onrender.com') ||
+          baseUrl.contains('hf.space') ||
+          baseUrl.contains('railway');
       throw ApiException(
-        'Không kết nối được server trong ${timeout.inSeconds}s.\n'
-        'Kiểm tra API Base URL ($baseUrl) và máy chạy python api.py '
-        'cùng Wi‑Fi với điện thoại.',
+        isCloud
+            ? 'Hết thời gian chờ ${timeout.inSeconds}s tới $baseUrl\n'
+                'Render Free có thể đang ngủ — mở link /health trên Chrome '
+                'đợi 1 phút rồi bấm Kiểm tra lại.'
+            : 'Không kết nối được server trong ${timeout.inSeconds}s.\n'
+                'URL hiện tại: $baseUrl',
       );
     } on SocketException catch (e) {
       throw ApiException(
-        'Không kết nối được tới $baseUrl\n'
-        '• Điện thoại thật: dùng IP LAN của máy tính (vd http://192.168.1.10:8000)\n'
-        '• Emulator Android: http://10.0.2.2:8000\n'
-        '• Đảm bảo firewall cho phép cổng 8000\n'
-        'Chi tiết: ${e.message}',
+        'Không kết nối được tới $baseUrl\nChi tiết: ${e.message}',
         cause: e,
       );
     } on http.ClientException catch (e) {
@@ -84,7 +101,7 @@ class ApiService {
         }
         return jsonDecode(res.body) as Map<String, dynamic>;
       },
-      timeout: const Duration(seconds: 5),
+      timeout: const Duration(seconds: 60),
     );
   }
 
@@ -123,7 +140,7 @@ class ApiService {
         }
         return Job.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
       },
-      timeout: const Duration(seconds: 12),
+      timeout: const Duration(seconds: 90),
     );
   }
 
@@ -139,7 +156,7 @@ class ApiService {
         }
         return Job.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
       },
-      timeout: const Duration(seconds: 8),
+      timeout: const Duration(seconds: 30),
     );
   }
 
