@@ -91,7 +91,7 @@ def run_generation(
 
     print(f"\n📝 Duration ≈ {script_data.get('total_duration')}s")
     print(f"🎬 Scenes: {len(script_data.get('scenes', []))}")
-    print(f"🖼️  Images: {len(list(images_dir.glob('*.jpeg')))}")
+    print(f"🖼️  Images: {len([*images_dir.glob('*.jpeg'), *images_dir.glob('*.jpg'), *images_dir.glob('*.png'), *images_dir.glob('*.webp')])}")
     print(f"🎥 Final video: {final_path}")
     return final_path
 
