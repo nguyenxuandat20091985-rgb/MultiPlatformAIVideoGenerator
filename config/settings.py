@@ -25,6 +25,10 @@ class Settings:
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
     # Keep the model configurable because provider model IDs can be retired.
     GROQ_MODEL: str = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+
+    # Image generation
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    # Kept for backward compatibility; image generation now uses Gemini.
     TOGETHER_API_KEY: str = os.getenv("TOGETHER_API_KEY", "")
 
     # YouTube
@@ -59,13 +63,13 @@ class Settings:
         missing = []
         if not cls.GROQ_API_KEY:
             missing.append("GROQ_API_KEY")
-        if not cls.TOGETHER_API_KEY:
-            missing.append("TOGETHER_API_KEY")
+        if not cls.GEMINI_API_KEY:
+            missing.append("GEMINI_API_KEY")
         if missing:
             raise ValueError(
                 "Missing required environment variables for video generation: "
                 f"{', '.join(missing)}. "
-                "Set them as Hugging Face Space Secrets or in a local .env file."
+                "Set them in Render Environment Variables or a local .env file."
             )
 
     @classmethod
