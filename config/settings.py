@@ -23,6 +23,8 @@ def _path_from_env(env_key: str, default_relative: str) -> Path:
 class Settings:
     # Core AI
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
+    # Keep the model configurable because provider model IDs can be retired.
+    GROQ_MODEL: str = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
     TOGETHER_API_KEY: str = os.getenv("TOGETHER_API_KEY", "")
 
     # YouTube
