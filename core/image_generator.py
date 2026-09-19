@@ -215,6 +215,9 @@ def generate_images(image_prompts_path: Path, output_dir: Path) -> None:
         )
 
     generated = 0
+    # Permanent authentication/credit failures should not be retried for every scene.
+    # Transient failures (including rate limits) remain eligible for the next scene.
+    disabled_keys: set[tuple[str, int]] = set()
 
     for i, prompt_data in enumerate(prompts, start=1):
         prompt_text = _build_prompt(prompt_data)
@@ -224,6 +227,8 @@ def generate_images(image_prompts_path: Path, output_dir: Path) -> None:
         for provider in available:
             keys = provider_keys[provider]
             for key_index, api_key in enumerate(keys, start=1):
+                if (provider, key_index) in disabled_keys:
+                    continue
                 try:
                     print(
                         f"Generating image {i}/{len(prompts)} with "
@@ -248,6 +253,11 @@ def generate_images(image_prompts_path: Path, output_dir: Path) -> None:
                     errors.append(
                         f"{provider} key #{key_index}: {safe_error}"
                     )
+                    # 401/402/403/404 generally indicate a key/account/model
+                    # configuration problem. Do not burn the same key on every scene.
+                    match = re.search(r"HTTP\\s+(401|402|403|404)\\b", safe_error)
+                    if match:
+                        disabled_keys.add((provider, key_index))
                     print(
                         f"{provider} key #{key_index} failed for image {i}; "
                         "trying the next key/provider."
@@ -256,10 +266,13 @@ def generate_images(image_prompts_path: Path, output_dir: Path) -> None:
                 break
 
         if not saved:
+            active = sum(1 for p in available for k in provider_keys[p] if (p, provider_keys[p].index(k) + 1) not in disabled_keys)
+            summary = " | ".join(errors)
             raise RuntimeError(
                 f"Image {i}/{len(prompts)} failed. "
-                f"All configured image keys/providers were tried. "
-                f"Details: {' | '.join(errors)}"
+                f"All currently usable image keys/providers were tried. "
+                f"Active fallback keys remaining: {active}. "
+                f"Details: {summary}"
             )
 
     if generated != len(prompts):
