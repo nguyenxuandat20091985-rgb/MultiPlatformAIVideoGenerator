@@ -8,7 +8,6 @@ import 'package:share_plus/share_plus.dart';
 import '../models/job.dart';
 import '../services/api_service.dart';
 
-/// Full result screen: vertical video player + status + publish + actions.
 class ResultScreen extends StatefulWidget {
   final ApiService api;
   final Job job;
@@ -25,8 +24,7 @@ class _ResultScreenState extends State<ResultScreen> {
   String? _playerError;
   bool _loadingPlayer = true;
 
-  String get _videoUrl =>
-      widget.api.videoAbsoluteUrl(widget.job.videoUrl);
+  String get _videoUrl => widget.api.videoAbsoluteUrl(widget.job.videoUrl);
 
   @override
   void initState() {
@@ -349,7 +347,7 @@ class _ResultScreenState extends State<ResultScreen> {
                         child: OutlinedButton.icon(
                           onPressed: _videoUrl.isEmpty ? null : _share,
                           icon: const Icon(Icons.share, size: 18),
-                          label: const Text('Tạo video mới'.length > 0 ? 'Chia sẻ' : ''),
+                          label: const Text('Chia sẻ'),
                         ),
                       ),
                       const SizedBox(width: 8),
