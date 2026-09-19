@@ -63,7 +63,7 @@ Constraints:
 """
 
     response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model=settings.GROQ_MODEL,
         messages=[
             {"role": "system", "content": "You are a JSON-only script writer for short-form video."},
             {"role": "user", "content": prompt},
