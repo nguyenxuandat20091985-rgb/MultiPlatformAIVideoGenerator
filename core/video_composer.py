@@ -20,7 +20,14 @@ def compose_video(
     """
     Create a vertical video by sequencing images timed to the audio length.
     """
-    image_files = sorted(\n        [\n            *images_dir.glob("*.jpeg"),\n            *images_dir.glob("*.jpg"),\n            *images_dir.glob("*.png"),\n            *images_dir.glob("*.webp"),\n        ]\n    )
+    image_files = sorted(
+        [
+            *images_dir.glob("*.jpeg"),
+            *images_dir.glob("*.jpg"),
+            *images_dir.glob("*.png"),
+            *images_dir.glob("*.webp"),
+        ]
+    )
     if not image_files:
         raise ValueError(f"No images found in {images_dir}")
 
