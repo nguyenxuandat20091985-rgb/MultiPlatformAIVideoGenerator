@@ -105,7 +105,10 @@ class Settings:
             missing.append("GROQ_API_KEY")
 
         image_provider_configured = bool(
-            cls.OPENROUTER_API_KEY or cls.GEMINI_API_KEY
+            cls.OPENROUTER_API_KEY
+            or any(cls.OPENROUTER_API_KEYS)
+            or cls.GEMINI_API_KEY
+            or any(cls.GEMINI_API_KEYS)
         )
         if not image_provider_configured:
             missing.append("OPENROUTER_API_KEY or GEMINI_API_KEY")
