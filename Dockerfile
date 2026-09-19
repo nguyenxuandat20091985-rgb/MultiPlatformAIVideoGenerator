@@ -1,5 +1,5 @@
 # MultiPlatform AI Video Generator API
-# Works on Render, Railway, Docker local, HF Spaces (PORT env)
+# Render / Docker / local — PORT from environment
 FROM python:3.11-slim-bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
         build-essential \
         libsndfile1 \
+        fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
