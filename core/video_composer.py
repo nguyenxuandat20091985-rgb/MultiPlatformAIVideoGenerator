@@ -50,8 +50,9 @@ def compose_video(
     """
     Create a vertical MP4 while streaming image frames through FFmpeg.
 
-    fade_duration is retained for API compatibility; the resilient path uses
-    simple cuts rather than MoviePy cross-fades to minimize memory/CPU spikes.
+    The Render-safe profile is 720x1280/24fps with a single encoder thread.
+    This intentionally trades some encoding quality/speed for predictable RAM
+    usage on small instances and avoids worker crashes/502 responses.
     """
     del fade_duration
 
@@ -85,16 +86,17 @@ def compose_video(
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
         "-f", "concat", "-safe", "0", "-i", str(concat_file),
         "-i", str(audio_path),
-        "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,"
-               "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,"
+        "-vf", "scale=720:1280:force_original_aspect_ratio=decrease,"
+               "pad=720:1280:(ow-iw)/2:(oh-ih)/2:color=black,"
                "format=yuv420p",
         "-map", "0:v:0", "-map", "1:a:0",
         "-t", f"{duration:.3f}",
-        "-r", "30",
+        "-r", "24",
         "-c:v", "libx264",
-        "-preset", "veryfast",
+        "-preset", "ultrafast",
         "-tune", "stillimage",
-        "-crf", "23",
+        "-threads", "1",
+        "-crf", "28",
         "-c:a", "aac",
         "-b:a", "128k",
         "-shortest",
