@@ -1,0 +1,20 @@
+{
+  "name": "multiplatform-ai-video",
+  "version": "1.0",
+  "inspired_by": "OpenMontage pipeline-manifest pattern",
+  "stages": [
+    {"id":"script","artifact":"script.json"},
+    {"id":"image_prompts","artifact":"image_prompts.json"},
+    {"id":"images","artifact":"images/*"},
+    {"id":"audio","artifact":"audio/*"},
+    {"id":"compose","artifact":"video.mp4"},
+    {"id":"captions","artifact":"video-captioned.mp4"},
+    {"id":"qa","artifact":"video_qa.json"}
+  ],
+  "quality_gates": {
+    "images": ["at_least_one_valid_image"],
+    "audio": ["ffprobe_valid_audio"],
+    "video": ["ffprobe_valid_mp4"],
+    "qa": ["video_duration_positive","video_has_video_stream","video_has_audio_stream"]
+  }
+}
