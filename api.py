@@ -180,8 +180,17 @@ def _run_pipeline(job_id: str) -> None:
         _set_step(job, "image_prompts", "done")
 
         _set_step(job, "images", "running", "Generating images…")
-        generate_images(prompts_path, images_dir)
-        _set_step(job, "images", "done")
+        image_report = generate_images(prompts_path, images_dir)
+        if image_report.get("fallback_used"):
+            fallback_count = image_report.get("local_fallback", 0)
+            _set_step(
+                job,
+                "images",
+                "done",
+                f"Images ready; {fallback_count} local fallback frame(s) used because remote image providers were unavailable.",
+            )
+        else:
+            _set_step(job, "images", "done", "Images ready")
 
         _set_step(job, "audio", "running", "Generating audio…")
         audio_path = generate_audio(script_path, audio_dir)
