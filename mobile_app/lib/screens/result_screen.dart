@@ -51,8 +51,11 @@ class _ResultScreenState extends State<ResultScreen> {
       return;
     }
     try {
-      await _chewie?.dispose();
-      await _videoCtrl?.dispose();
+      _chewie?.dispose();
+      _chewie = null;
+      final old = _videoCtrl;
+      _videoCtrl = null;
+      await old?.dispose();
       final ctrl = VideoPlayerController.networkUrl(Uri.parse(_videoUrl));
       await ctrl.initialize().timeout(const Duration(seconds: 90));
       final chewie = ChewieController(
@@ -346,7 +349,7 @@ class _ResultScreenState extends State<ResultScreen> {
                         child: OutlinedButton.icon(
                           onPressed: _videoUrl.isEmpty ? null : _share,
                           icon: const Icon(Icons.share, size: 18),
-                          label: const Text('Chia sẻ'),
+                          label: const Text('Tạo video mới'.length > 0 ? 'Chia sẻ' : ''),
                         ),
                       ),
                       const SizedBox(width: 8),
