@@ -27,7 +27,24 @@ class Settings:
 
     # Image generation: ordered provider failover.
     IMAGE_PROVIDER_ORDER: str = os.getenv(
-        "IMAGE_PROVIDER_ORDER", "gemini,openrouter"
+        "IMAGE_PROVIDER_ORDER", "openai,gemini,openrouter"
+    )
+
+    # OpenAI direct image provider
+    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+    OPENAI_API_KEYS: list[str] = [
+        os.getenv("OPENAI_API_KEY_2", ""),
+        os.getenv("OPENAI_API_KEY_3", ""),
+        os.getenv("OPENAI_API_KEY_4", ""),
+    ]
+    OPENAI_IMAGE_MODEL: str = os.getenv(
+        "OPENAI_IMAGE_MODEL", "gpt-image-2"
+    )
+    OPENAI_IMAGE_SIZE: str = os.getenv(
+        "OPENAI_IMAGE_SIZE", "1024x1536"
+    )
+    OPENAI_IMAGE_QUALITY: str = os.getenv(
+        "OPENAI_IMAGE_QUALITY", "auto"
     )
 
     # OpenRouter image provider
