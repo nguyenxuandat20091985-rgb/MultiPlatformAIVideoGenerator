@@ -1,14 +1,44 @@
-"""Compose final video from images + audio using MoviePy."""
+"""Compose final vertical video from images + audio using FFmpeg.
+
+The composer intentionally uses FFmpeg's streaming pipeline instead of keeping all
+MoviePy image frames in Python memory. This is safer on small Render instances.
+"""
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
-from moviepy.editor import (
-    AudioFileClip,
-    ImageClip,
-    concatenate_videoclips,
-)
-from moviepy.video.fx.all import fadein, fadeout
+
+def _probe_duration(audio_path: Path) -> float:
+    result = subprocess.run(
+        [
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(audio_path),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Unable to read audio duration: {result.stderr.strip()[-500:]}"
+        )
+    try:
+        duration = float(result.stdout.strip())
+    except ValueError as exc:
+        raise RuntimeError("Audio duration is invalid.") from exc
+    if duration <= 0:
+        raise RuntimeError("Audio duration must be greater than zero.")
+    return duration
+
+
+def _ffmpeg_concat_escape(path: Path) -> str:
+    # concat demuxer uses single quotes; escape embedded quotes/backslashes.
+    value = str(path.resolve()).replace("\\", "\\\\").replace("'", "'\\''")
+    return f"'{value}'"
 
 
 def compose_video(
@@ -18,8 +48,13 @@ def compose_video(
     fade_duration: float = 0.4,
 ) -> Path:
     """
-    Create a vertical video by sequencing images timed to the audio length.
+    Create a vertical MP4 while streaming image frames through FFmpeg.
+
+    fade_duration is retained for API compatibility; the resilient path uses
+    simple cuts rather than MoviePy cross-fades to minimize memory/CPU spikes.
     """
+    del fade_duration
+
     image_files = sorted(
         [
             *images_dir.glob("*.jpeg"),
@@ -31,34 +66,59 @@ def compose_video(
     if not image_files:
         raise ValueError(f"No images found in {images_dir}")
 
-    audio = AudioFileClip(str(audio_path))
-    duration_per_image = audio.duration / len(image_files)
-    print(f"⏱️  Each image ≈ {duration_per_image:.2f}s (total {audio.duration:.1f}s)")
-
-    clips = []
-    for i, img in enumerate(image_files):
-        clip = ImageClip(str(img)).set_duration(duration_per_image)
-        # Optional gentle fades
-        if i > 0:
-            clip = fadein(clip, fade_duration)
-        if i < len(image_files) - 1:
-            clip = fadeout(clip, fade_duration)
-        clips.append(clip)
-
-    video = concatenate_videoclips(clips, method="compose")
-    video = video.set_audio(audio)
+    duration = _probe_duration(audio_path)
+    duration_per_image = duration / len(image_files)
+    print(f"FFmpeg compose: {len(image_files)} images, ≈ {duration_per_image:.2f}s each, total {duration:.1f}s")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    video.write_videofile(
-        str(output_path),
-        fps=30,
-        codec="libx264",
-        audio_codec="aac",
-        threads=4,
-        logger=None,
-    )
-    video.close()
-    audio.close()
+    concat_file = output_path.parent / "images.concat.txt"
 
-    print(f"✅ Video composed → {output_path}")
+    lines = []
+    for image in image_files:
+        lines.append(f"file {_ffmpeg_concat_escape(image)}")
+        lines.append(f"duration {duration_per_image:.6f}")
+    # concat requires the final file to be repeated for the final duration entry.
+    lines.append(f"file {_ffmpeg_concat_escape(image_files[-1])}")
+    concat_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    command = [
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-f", "concat", "-safe", "0", "-i", str(concat_file),
+        "-i", str(audio_path),
+        "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,"
+               "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,"
+               "format=yuv420p",
+        "-map", "0:v:0", "-map", "1:a:0",
+        "-t", f"{duration:.3f}",
+        "-r", "30",
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-tune", "stillimage",
+        "-crf", "23",
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-shortest",
+        str(output_path),
+    ]
+
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=max(180, int(duration * 30) + 120),
+        )
+    except subprocess.TimeoutExpired as exc:
+        output_path.unlink(missing_ok=True)
+        raise RuntimeError("FFmpeg video composition timed out.") from exc
+    finally:
+        concat_file.unlink(missing_ok=True)
+
+    if result.returncode != 0 or not output_path.exists() or output_path.stat().st_size < 10_000:
+        output_path.unlink(missing_ok=True)
+        detail = (result.stderr or result.stdout or "unknown FFmpeg error").strip()
+        raise RuntimeError(f"FFmpeg composition failed: {detail[-1500:]}")
+
+    print(f"Video composed → {output_path} ({output_path.stat().st_size} bytes)")
     return output_path
