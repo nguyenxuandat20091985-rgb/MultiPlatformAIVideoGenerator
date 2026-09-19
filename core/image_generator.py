@@ -255,7 +255,7 @@ def generate_images(image_prompts_path: Path, output_dir: Path) -> None:
                     )
                     # 401/402/403/404 generally indicate a key/account/model
                     # configuration problem. Do not burn the same key on every scene.
-                    match = re.search(r"HTTP\\s+(401|402|403|404)\\b", safe_error)
+                    match = re.search(r"HTTP\s+(401|402|403|404)\b", safe_error)
                     if match:
                         disabled_keys.add((provider, key_index))
                     print(
