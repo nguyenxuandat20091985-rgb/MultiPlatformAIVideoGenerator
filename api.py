@@ -4,6 +4,7 @@ FastAPI backend for MultiPlatformAIVideoGenerator.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from datetime import datetime, timezone
@@ -47,6 +48,27 @@ app.add_middleware(
 OUTPUT_ROOT = Path(settings.OUTPUT_DIR)
 OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 app.mount("/media", StaticFiles(directory=str(OUTPUT_ROOT)), name="media")
+
+
+async def _resume_persisted_jobs() -> None:
+    """Resume queued/running jobs after a worker restart, one at a time."""
+    pending = []
+    for path in sorted(JOB_STATE_ROOT.glob("*.json")):
+        try:
+            job = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            continue
+        if job.get("status") in (JobStatus.queued.value, JobStatus.running.value):
+            pending.append(job.get("job_id"))
+
+    # Render free/small instances should not compose several videos concurrently.
+    for job_id in pending[:1]:
+        await asyncio.to_thread(_run_pipeline, job_id)
+
+
+@app.on_event("startup")
+async def recover_jobs_after_restart() -> None:
+    asyncio.create_task(_resume_persisted_jobs())
 
 
 class JobStatus(str, Enum):
