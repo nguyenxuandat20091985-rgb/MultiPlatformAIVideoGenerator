@@ -166,8 +166,7 @@ def _save_job(job: Dict[str, Any]) -> None:
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(job, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     tmp.replace(path)
-    if settings.WORKER_MODE is False:
-        _notify_worker_callback(job)
+    _notify_worker_callback(job)
 
 
 def _load_job(job_id: str) -> Optional[Dict[str, Any]]:
@@ -418,6 +417,8 @@ async def worker_callback(payload: Dict[str, Any]):
     local = _load_job(job_id)
     if local is None:
         raise HTTPException(status_code=404, detail="Job not found")
+    local.pop("_worker_callback_url", None)
+    local.pop("_worker_callback_token", None)
     for key in ("status", "updated_at", "steps", "video_url", "video_path", "publish_results", "error"):
         if key in payload:
             local[key] = payload[key]
@@ -458,10 +459,12 @@ def health():
 
 @app.post("/api/v1/generate", response_model=JobResponse)
 async def generate(body: GenerateRequest, background_tasks: BackgroundTasks):
-    try:
-        settings.validate_generation()
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    worker_url = settings.VIDEO_WORKER_URL.strip().rstrip("/")
+    if not worker_url:
+        try:
+            settings.validate_generation()
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
     job_id = uuid.uuid4().hex
     steps = [{"name": n, "status": "pending", "message": ""} for n in PIPELINE_STEPS]
