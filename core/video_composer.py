@@ -86,17 +86,17 @@ def compose_video(
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
         "-f", "concat", "-safe", "0", "-i", str(concat_file),
         "-i", str(audio_path),
-        "-vf", "scale=720:1280:force_original_aspect_ratio=decrease,"
-               "pad=720:1280:(ow-iw)/2:(oh-ih)/2:color=black,"
+        "-vf", "scale=480:854:force_original_aspect_ratio=decrease,"
+               "pad=480:854:(ow-iw)/2:(oh-ih)/2:color=black,"
                "format=yuv420p",
         "-map", "0:v:0", "-map", "1:a:0",
         "-t", f"{duration:.3f}",
-        "-r", "24",
+        "-r", "20",
         "-c:v", "libx264",
         "-preset", "ultrafast",
         "-tune", "stillimage",
         "-threads", "1",
-        "-crf", "28",
+        "-crf", "30",
         "-c:a", "aac",
         "-b:a", "128k",
         "-shortest",
