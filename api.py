@@ -50,25 +50,37 @@ OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 app.mount("/media", StaticFiles(directory=str(OUTPUT_ROOT)), name="media")
 
 
-async def _resume_persisted_jobs() -> None:
-    """Resume queued/running jobs after a worker restart, one at a time."""
-    pending = []
+def _mark_interrupted_jobs() -> None:
+    """Prevent a crashed Render worker from entering an automatic restart loop."""
     for path in sorted(JOB_STATE_ROOT.glob("*.json")):
         try:
             job = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError, TypeError):
             continue
-        if job.get("status") in (JobStatus.queued.value, JobStatus.running.value):
-            pending.append(job.get("job_id"))
-
-    # Render free/small instances should not compose several videos concurrently.
-    for job_id in pending[:1]:
-        await asyncio.to_thread(_run_pipeline, job_id)
+        if job.get("status") == "running":
+            job["status"] = "failed"
+            job["updated_at"] = _now()
+            for step in job.get("steps", []):
+                if step.get("status") == "running":
+                    step["status"] = "error"
+                    step["message"] = (
+                        "Render worker restarted during processing. "
+                        "The job was stopped safely; start a new job to retry."
+                    )
+            try:
+                path.write_text(
+                    json.dumps(job, ensure_ascii=False, indent=2, default=str),
+                    encoding="utf-8",
+                )
+            except OSError:
+                pass
 
 
 @app.on_event("startup")
 async def recover_jobs_after_restart() -> None:
-    asyncio.create_task(_resume_persisted_jobs())
+    # Do not immediately restart a job after a worker crash. On small Render
+    # instances that can create an infinite crash -> restart -> crash loop.
+    _mark_interrupted_jobs()
 
 
 class JobStatus(str, Enum):
