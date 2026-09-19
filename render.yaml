@@ -10,6 +10,12 @@ services:
     envVars:
       - key: GROQ_API_KEY
         sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_IMAGE_MODEL
+        value: openai/gpt-image-2
+      - key: OPENROUTER_IMAGE_ASPECT_RATIO
+        value: "9:16"
       - key: GEMINI_API_KEY
         sync: false
       - key: TOGETHER_API_KEY
