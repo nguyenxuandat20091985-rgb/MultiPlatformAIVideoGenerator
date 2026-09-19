@@ -4,24 +4,19 @@ AI tạo video dọc (Shorts / Reels / TikTok) → **tự động đăng** lên 
 
 ## Image generation failover
 
-The image step uses ordered provider/key failover:
+The image pipeline uses ordered provider/key failover:
 
-1. **Gemini** — direct Google Gemini image API using `gemini-3.1-flash-image`.
-2. **OpenRouter** — image generation through `/api/v1/images` using the configured image model.
+1. **OpenAI direct** — `OPENAI_API_KEY` → `OPENAI_API_KEY_4`, using `gpt-image-2`.
+2. **Gemini** — `GEMINI_API_KEY` → `GEMINI_API_KEY_4`.
+3. **OpenRouter** — `OPENROUTER_API_KEY` → `OPENROUTER_API_KEY_4`.
 
-Set `IMAGE_PROVIDER_ORDER=gemini,openrouter` (the default). Each provider supports up to four keys:
-`GEMINI_API_KEY` through `GEMINI_API_KEY_4`, and
-`OPENROUTER_API_KEY` through `OPENROUTER_API_KEY_4`.
+Default order is `openai,gemini,openrouter`. OpenAI image generation uses the official Images API and returns base64 image data; the app normalizes the result to PNG. OpenAI's image API supports portrait output such as `1024x1536`; the prompt also explicitly requests vertical 9:16 composition. citeturn3search1turn2search0
 
-A permanent HTTP authentication/credit/configuration failure (401/402/403/404) disables only that key for the remainder of the current video job. Other configured keys/providers are then tried automatically. Transient failures remain eligible for later scenes.
-
-The application never prints API keys in error messages. Health diagnostics expose only provider configuration state and key counts.
+A permanent HTTP authentication/credit/configuration failure (401/402/403/404) disables that key for the remainder of the current video job. Other configured keys/providers are then tried automatically. API keys are never printed in errors or health responses.
 
 Required for generation:
 - `GROQ_API_KEY`
-- At least one image key in either the Gemini or OpenRouter key slots
-
-Important: failover cannot make an invalid/suspended key or an account with no image-generation credits usable. Those provider accounts still need valid access/credits.
+- At least one image key: `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `OPENROUTER_API_KEY`
 
 ## Quickstart
 
