@@ -48,6 +48,21 @@ def _redact(text: str) -> str:
     return text[:1800]
 
 
+def _friendly_provider_error(provider: str, error_text: str) -> str:
+    """Return a compact, safe message for common permanent provider failures."""
+    safe = _redact(error_text)
+    upper = safe.upper()
+    if "HTTP 403" in upper and "CONSUMER_SUSPENDED" in upper:
+        return f"{provider} HTTP 403 PERMISSION_DENIED/CONSUMER_SUSPENDED"
+    if "HTTP 402" in upper and "INSUFFICIENT CREDITS" in upper:
+        return f"{provider} HTTP 402 INSUFFICIENT_CREDITS"
+    if "HTTP 401" in upper:
+        return f"{provider} HTTP 401 UNAUTHORIZED"
+    if "HTTP 404" in upper:
+        return f"{provider} HTTP 404 NOT_FOUND"
+    return safe
+
+
 def _build_prompt(prompt_data: Dict[str, Any]) -> str:
     parts = [
         prompt_data.get("subject", ""),
@@ -249,7 +264,7 @@ def generate_images(image_prompts_path: Path, output_dir: Path) -> None:
                     saved = True
                     break
                 except Exception as exc:
-                    safe_error = _redact(str(exc))
+                    safe_error = _friendly_provider_error(provider, str(exc))
                     errors.append(
                         f"{provider} key #{key_index}: {safe_error}"
                     )
