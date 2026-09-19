@@ -27,11 +27,16 @@ class Settings:
 
     # Image generation: ordered provider failover.
     IMAGE_PROVIDER_ORDER: str = os.getenv(
-        "IMAGE_PROVIDER_ORDER", "openrouter,gemini"
+        "IMAGE_PROVIDER_ORDER", "gemini,openrouter"
     )
 
     # OpenRouter image provider
     OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
+    OPENROUTER_API_KEYS: list[str] = [
+        os.getenv("OPENROUTER_API_KEY_2", ""),
+        os.getenv("OPENROUTER_API_KEY_3", ""),
+        os.getenv("OPENROUTER_API_KEY_4", ""),
+    ]
     OPENROUTER_IMAGE_MODEL: str = os.getenv(
         "OPENROUTER_IMAGE_MODEL", "openai/gpt-image-2"
     )
@@ -41,6 +46,11 @@ class Settings:
 
     # Gemini direct image provider / fallback
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    GEMINI_API_KEYS: list[str] = [
+        os.getenv("GEMINI_API_KEY_2", ""),
+        os.getenv("GEMINI_API_KEY_3", ""),
+        os.getenv("GEMINI_API_KEY_4", ""),
+    ]
     GEMINI_IMAGE_MODEL: str = os.getenv(
         "GEMINI_IMAGE_MODEL", "gemini-3.1-flash-image"
     )
