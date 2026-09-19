@@ -21,12 +21,16 @@ def _path_from_env(env_key: str, default_relative: str) -> Path:
 
 
 class Settings:
-    # Core AI
+    # Core AI / text generation
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
-    # Keep the model configurable because provider model IDs can be retired.
     GROQ_MODEL: str = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 
-    # Image generation via OpenRouter
+    # Image generation: ordered provider failover.
+    IMAGE_PROVIDER_ORDER: str = os.getenv(
+        "IMAGE_PROVIDER_ORDER", "openrouter,gemini"
+    )
+
+    # OpenRouter image provider
     OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
     OPENROUTER_IMAGE_MODEL: str = os.getenv(
         "OPENROUTER_IMAGE_MODEL", "openai/gpt-image-2"
@@ -35,9 +39,17 @@ class Settings:
         "OPENROUTER_IMAGE_ASPECT_RATIO", "9:16"
     )
 
-    # Legacy provider keys are retained so older deployments do not crash on import.
-    # They are no longer used by the image pipeline.
+    # Gemini direct image provider / fallback
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    GEMINI_IMAGE_MODEL: str = os.getenv(
+        "GEMINI_IMAGE_MODEL", "gemini-3.1-flash-image"
+    )
+    GEMINI_IMAGE_ASPECT_RATIO: str = os.getenv(
+        "GEMINI_IMAGE_ASPECT_RATIO", "9:16"
+    )
+    GEMINI_IMAGE_SIZE: str = os.getenv("GEMINI_IMAGE_SIZE", "1K")
+
+    # Legacy provider key kept for backward compatibility only.
     TOGETHER_API_KEY: str = os.getenv("TOGETHER_API_KEY", "")
 
     # YouTube
@@ -68,12 +80,26 @@ class Settings:
     OUTPUT_DIR: Path = _path_from_env("OUTPUT_DIR", "output")
 
     @classmethod
+    def image_provider_order(cls) -> list[str]:
+        providers = []
+        for raw in cls.IMAGE_PROVIDER_ORDER.split(","):
+            provider = raw.strip().lower()
+            if provider and provider not in providers:
+                providers.append(provider)
+        return providers or ["openrouter", "gemini"]
+
+    @classmethod
     def validate_generation(cls) -> None:
         missing = []
         if not cls.GROQ_API_KEY:
             missing.append("GROQ_API_KEY")
-        if not cls.OPENROUTER_API_KEY:
-            missing.append("OPENROUTER_API_KEY")
+
+        image_provider_configured = bool(
+            cls.OPENROUTER_API_KEY or cls.GEMINI_API_KEY
+        )
+        if not image_provider_configured:
+            missing.append("OPENROUTER_API_KEY or GEMINI_API_KEY")
+
         if missing:
             raise ValueError(
                 "Missing required environment variables for video generation: "
