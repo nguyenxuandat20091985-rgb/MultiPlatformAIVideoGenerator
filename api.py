@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 import requests
 
 from config.settings import settings
+from core.video_qa import validate_final_video
 from core import (
     generate_script,
     save_script,
@@ -323,6 +324,12 @@ def _run_pipeline(job_id: str) -> None:
             _set_step(job, "captions", "done", "Skipped because local silent audio fallback was used")
         else:
             _set_step(job, "captions", "done", "Skipped")
+
+        _set_step(job, "qa", "running", "Validating final MP4…")
+        qa_report = validate_final_video(out_video)
+        job["video_qa"] = qa_report
+        _set_step(job, "qa", "done", "Video validated successfully")
+        _release_memory()
 
         rel = out_video.relative_to(OUTPUT_ROOT).as_posix()
         job["video_path"] = str(out_video)
