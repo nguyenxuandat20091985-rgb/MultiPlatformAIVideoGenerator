@@ -1,4 +1,4 @@
-"""Generate images with multi-key provider failover: Gemini <-> OpenRouter."""
+"""Generate images with multi-key provider failover: OpenAI -> Gemini -> OpenRouter."""
 from __future__ import annotations
 
 import base64
@@ -264,8 +264,8 @@ def generate_images(image_prompts_path: Path, output_dir: Path) -> None:
     if not available:
         raise RuntimeError(
             "No image provider API key is configured. "
-            "Set GEMINI_API_KEY/GEMINI_API_KEYS or "
-            "OPENROUTER_API_KEY/OPENROUTER_API_KEYS."
+            "Set OPENAI_API_KEY, GEMINI_API_KEY, or "
+            "OPENROUTER_API_KEY (including their _2/_3/_4 slots)."
         )
 
     generated = 0
