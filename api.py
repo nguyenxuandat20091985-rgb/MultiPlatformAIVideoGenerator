@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import gc
 import json
+import os
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
@@ -15,9 +16,10 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+import requests
 
 from config.settings import settings
 from core import (
@@ -140,11 +142,32 @@ def _job_state_path(job_id: str) -> Path:
     return JOB_STATE_ROOT / f"{job_id}.json"
 
 
+def _notify_worker_callback(job: Dict[str, Any]) -> None:
+    callback_url = job.get("_worker_callback_url")
+    callback_token = job.get("_worker_callback_token")
+    if not callback_url or not callback_token:
+        return
+    payload = dict(job)
+    payload.pop("_worker_callback_url", None)
+    payload.pop("_worker_callback_token", None)
+    try:
+        requests.post(
+            callback_url,
+            json=payload,
+            headers={"X-Worker-Token": callback_token},
+            timeout=10,
+        )
+    except requests.RequestException:
+        pass
+
+
 def _save_job(job: Dict[str, Any]) -> None:
     path = _job_state_path(job["job_id"])
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(job, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     tmp.replace(path)
+    if settings.WORKER_MODE is False:
+        _notify_worker_callback(job)
 
 
 def _load_job(job_id: str) -> Optional[Dict[str, Any]]:
@@ -304,7 +327,10 @@ def _run_pipeline(job_id: str) -> None:
 
         rel = out_video.relative_to(OUTPUT_ROOT).as_posix()
         job["video_path"] = str(out_video)
-        job["video_url"] = f"/media/{rel}"
+        if settings.WORKER_MODE and settings.PUBLIC_BASE_URL:
+            job["video_url"] = f"{settings.PUBLIC_BASE_URL.rstrip('/')}/media/{rel}"
+        else:
+            job["video_url"] = f"/media/{rel}"
 
         platforms = [p.lower().strip() for p in (req.get("platforms") or []) if p]
         if platforms:
@@ -343,6 +369,61 @@ def _run_pipeline(job_id: str) -> None:
                 s["message"] = str(e)
         _save_job(job)
 
+
+
+class WorkerRunRequest(BaseModel):
+    job_id: str
+    request: Dict[str, Any]
+    callback_url: str
+    callback_token: str
+
+
+@app.post("/internal/worker/run")
+async def worker_run(body: WorkerRunRequest, background_tasks: BackgroundTasks):
+    if not settings.WORKER_MODE:
+        raise HTTPException(status_code=404, detail="Worker endpoint disabled")
+    if body.callback_token != settings.WORKER_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid worker token")
+    job = _load_job(body.job_id) or {
+        "job_id": body.job_id,
+        "status": JobStatus.queued,
+        "created_at": _now(),
+        "updated_at": _now(),
+        "request": body.request,
+        "steps": [{"name": n, "status": "pending", "message": ""} for n in PIPELINE_STEPS],
+        "video_url": None,
+        "video_path": None,
+        "publish_results": None,
+        "error": None,
+    }
+    if job.get("status") == JobStatus.running:
+        return {"accepted": True, "job_id": body.job_id}
+    job["request"] = body.request
+    job["_worker_callback_url"] = body.callback_url
+    job["_worker_callback_token"] = body.callback_token
+    _jobs[body.job_id] = job
+    _save_job(job)
+    background_tasks.add_task(_run_pipeline, body.job_id)
+    return {"accepted": True, "job_id": body.job_id}
+
+
+@app.post("/internal/worker/callback")
+async def worker_callback(payload: Dict[str, Any]):
+    token = payload.pop("_worker_callback_token", None)
+    if token != settings.VIDEO_WORKER_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid worker token")
+    job_id = payload.get("job_id")
+    if not job_id:
+        raise HTTPException(status_code=400, detail="Missing job_id")
+    local = _load_job(job_id)
+    if local is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    for key in ("status", "updated_at", "steps", "video_url", "video_path", "publish_results", "error"):
+        if key in payload:
+            local[key] = payload[key]
+    _jobs[job_id] = local
+    _save_job(local)
+    return {"accepted": True, "job_id": job_id}
 
 @app.get("/health")
 def health():
@@ -398,7 +479,40 @@ async def generate(body: GenerateRequest, background_tasks: BackgroundTasks):
     }
     _jobs[job_id] = job
     _save_job(job)
-    background_tasks.add_task(_run_pipeline, job_id)
+
+    worker_url = settings.VIDEO_WORKER_URL.strip().rstrip("/")
+    if worker_url and not settings.WORKER_MODE:
+        if not settings.PUBLIC_BASE_URL:
+            job["status"] = JobStatus.failed
+            job["error"] = "VIDEO_WORKER_URL is configured but PUBLIC_BASE_URL is missing."
+            _save_job(job)
+            raise HTTPException(status_code=500, detail=job["error"])
+        callback_url = f"{settings.PUBLIC_BASE_URL.rstrip('/')}/internal/worker/callback"
+        job["_worker_callback_url"] = callback_url
+        job["_worker_callback_token"] = settings.VIDEO_WORKER_TOKEN
+        _save_job(job)
+        try:
+            response = await asyncio.to_thread(
+                requests.post,
+                f"{worker_url}/internal/worker/run",
+                json={
+                    "job_id": job_id,
+                    "request": body.model_dump(),
+                    "callback_url": callback_url,
+                    "callback_token": settings.VIDEO_WORKER_TOKEN,
+                },
+                headers={"X-Worker-Token": settings.VIDEO_WORKER_TOKEN},
+                timeout=20,
+            )
+            response.raise_for_status()
+        except (requests.RequestException, ValueError) as exc:
+            job["status"] = JobStatus.failed
+            job["error"] = f"Unable to dispatch video job to worker: {exc}"
+            _save_job(job)
+            raise HTTPException(status_code=502, detail=job["error"]) from exc
+    else:
+        background_tasks.add_task(_run_pipeline, job_id)
+
     return _job_to_response(job)
 
 
@@ -415,6 +529,8 @@ def download_video(job_id: str):
     job = _load_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    if job.get("video_url", "").startswith("http"):
+        return RedirectResponse(job["video_url"])
     path = job.get("video_path")
     if not path or not Path(path).exists():
         raise HTTPException(status_code=404, detail="Video not ready")
