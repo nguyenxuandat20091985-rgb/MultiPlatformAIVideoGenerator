@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import requests
@@ -443,6 +443,8 @@ async def worker_callback(
     for key in ("status", "updated_at", "steps", "video_url", "video_path", "publish_results", "error"):
         if key in payload:
             local[key] = payload[key]
+    if local.get("video_url", "").startswith("http") and settings.PUBLIC_BASE_URL and not settings.WORKER_MODE:
+        local["video_url"] = f"{settings.PUBLIC_BASE_URL.rstrip('/')}/api/v1/jobs/{job_id}/video"
     _jobs[job_id] = local
     _save_job(local)
     return {"accepted": True, "job_id": job_id}
@@ -556,7 +558,25 @@ def download_video(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     if job.get("video_url", "").startswith("http"):
-        return RedirectResponse(job["video_url"])
+        remote_url = job["video_url"]
+        try:
+            response = requests.get(remote_url, stream=True, timeout=(10, 60))
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            raise HTTPException(status_code=502, detail=f"Unable to fetch worker video: {exc}") from exc
+
+        def _stream():
+            try:
+                for chunk in response.iter_content(chunk_size=1024 * 1024):
+                    if chunk:
+                        yield chunk
+            finally:
+                response.close()
+
+        headers = {}
+        if response.headers.get("content-length"):
+            headers["Content-Length"] = response.headers["content-length"]
+        return StreamingResponse(_stream(), media_type="video/mp4", headers=headers)
     path = job.get("video_path")
     if not path or not Path(path).exists():
         raise HTTPException(status_code=404, detail="Video not ready")
