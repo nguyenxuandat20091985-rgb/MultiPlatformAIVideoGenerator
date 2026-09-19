@@ -97,6 +97,13 @@ class Settings:
     FACEBOOK_PAGE_ACCESS_TOKEN: str = os.getenv("FACEBOOK_PAGE_ACCESS_TOKEN", "")
     FACEBOOK_API_VERSION: str = os.getenv("FACEBOOK_API_VERSION", "v21.0")
 
+    # Remote video worker. When configured, Render only orchestrates jobs.
+    VIDEO_WORKER_URL: str = os.getenv("VIDEO_WORKER_URL", "")
+    VIDEO_WORKER_TOKEN: str = os.getenv("VIDEO_WORKER_TOKEN", "")
+    PUBLIC_BASE_URL: str = os.getenv("PUBLIC_BASE_URL", "")
+    WORKER_MODE: bool = os.getenv("WORKER_MODE", "0").strip().lower() in ("1", "true", "yes")
+    WORKER_TOKEN: str = os.getenv("WORKER_TOKEN", "")
+
     # Runtime
     DEFAULT_VIDEO_STYLE: str = os.getenv("DEFAULT_VIDEO_STYLE", "educational")
     DEFAULT_TARGET_AUDIENCE: str = os.getenv("DEFAULT_TARGET_AUDIENCE", "general")
