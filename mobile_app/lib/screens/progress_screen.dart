@@ -25,11 +25,21 @@ class _ProgressScreenState extends State<ProgressScreen> {
   Timer? _timer;
   bool _navigated = false;
 
+  static const _labels = {
+    'script': 'Viết kịch bản',
+    'image_prompts': 'Tạo mô tả ảnh',
+    'images': 'Sinh ảnh AI',
+    'audio': 'Giọng nói (TTS)',
+    'compose': 'Ghép video',
+    'captions': 'Phụ đề',
+    'publish': 'Đăng nền tảng',
+  };
+
   @override
   void initState() {
     super.initState();
     _poll();
-    _timer = Timer.periodic(const Duration(seconds: 2), (_) => _poll());
+    _timer = Timer.periodic(const Duration(seconds: 3), (_) => _poll());
   }
 
   Future<void> _poll() async {
@@ -44,7 +54,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
       if (job.isDone && !_navigated) {
         _navigated = true;
         _timer?.cancel();
-        await Future.delayed(const Duration(milliseconds: 400));
+        await Future.delayed(const Duration(milliseconds: 500));
         if (!mounted) return;
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
@@ -63,14 +73,30 @@ class _ProgressScreenState extends State<ProgressScreen> {
     super.dispose();
   }
 
+  String _statusLabel(String s) {
+    switch (s) {
+      case 'queued':
+        return 'Đang xếp hàng…';
+      case 'running':
+        return 'Đang tạo video…';
+      case 'completed':
+        return 'Hoàn tất';
+      case 'failed':
+        return 'Thất bại';
+      default:
+        return s;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final job = _job;
     final progress = (job?.progressPercent ?? 0).clamp(0, 100) / 100.0;
+    final theme = Theme.of(context);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Generating…'),
+        title: const Text('Đang tạo video'),
         automaticallyImplyLeading: job?.isDone != true,
       ),
       body: SafeArea(
@@ -79,46 +105,97 @@ class _ProgressScreenState extends State<ProgressScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (_error != null)
+              Card(
+                elevation: 0,
+                color: theme.colorScheme.primaryContainer.withOpacity(0.35),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      Icon(
+                        job?.status == 'failed'
+                            ? Icons.error_outline
+                            : Icons.movie_creation_outlined,
+                        size: 40,
+                        color: theme.colorScheme.primary,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        job == null
+                            ? 'Đang kết nối server…'
+                            : _statusLabel(job.status),
+                        style: theme.textTheme.titleLarge,
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Có thể mất vài phút (AI + TTS + encode).\n'
+                        'Giữ màn hình này để theo dõi.',
+                        style: theme.textTheme.bodySmall
+                            ?.copyWith(color: Colors.grey.shade700),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: 10),
                 Card(
                   color: Colors.red.shade50,
                   child: ListTile(
-                    leading: const Icon(Icons.error, color: Colors.red),
-                    title: Text(_error!),
+                    leading: const Icon(Icons.warning, color: Colors.red),
+                    title: Text(_error!, style: const TextStyle(fontSize: 13)),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.refresh),
+                      onPressed: _poll,
+                    ),
                   ),
                 ),
-              const SizedBox(height: 8),
-              Text(
-                job == null ? 'Connecting…' : 'Status: ${job.status}',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 12),
-              LinearProgressIndicator(
-                value: job == null ? null : progress,
-                minHeight: 10,
-                borderRadius: BorderRadius.circular(6),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                '${job?.progressPercent ?? 0}%',
-                textAlign: TextAlign.end,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
+              ],
               const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: LinearProgressIndicator(
+                      value: job == null ? null : progress,
+                      minHeight: 12,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    '${job?.progressPercent ?? 0}%',
+                    style: theme.textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Text('Các bước', style: theme.textTheme.titleMedium),
+              const SizedBox(height: 8),
               Expanded(
                 child: job == null
                     ? const Center(child: CircularProgressIndicator())
                     : ListView.builder(
                         itemCount: job.steps.length,
-                        itemBuilder: (_, i) => StepTile(step: job.steps[i]),
+                        itemBuilder: (_, i) {
+                          final s = job.steps[i];
+                          final label = _labels[s.name] ?? s.name;
+                          return StepTile(
+                            step: JobStep(
+                              name: label,
+                              status: s.status,
+                              message: s.message,
+                            ),
+                          );
+                        },
                       ),
               ),
               Text(
-                'Job ID: ${widget.jobId}',
-                style: Theme.of(context)
-                    .textTheme
-                    .bodySmall
-                    ?.copyWith(color: Colors.grey),
+                'Job: ${widget.jobId}',
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: Colors.grey, fontSize: 11),
                 textAlign: TextAlign.center,
               ),
             ],
