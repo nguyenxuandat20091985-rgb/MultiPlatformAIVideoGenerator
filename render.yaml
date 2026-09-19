@@ -10,6 +10,8 @@ services:
     envVars:
       - key: GROQ_API_KEY
         sync: false
+      - key: GEMINI_API_KEY
+        sync: false
       - key: TOGETHER_API_KEY
         sync: false
       - key: TIKTOK_ACCESS_TOKEN
