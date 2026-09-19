@@ -4,6 +4,7 @@ FastAPI backend for MultiPlatformAIVideoGenerator.
 """
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
@@ -194,18 +195,30 @@ def _run_pipeline(job_id: str) -> None:
 
         _set_step(job, "audio", "running", "Generating audio…")
         audio_path = generate_audio(script_path, audio_dir)
-        _set_step(job, "audio", "done")
+        audio_report = {}
+        report_path = audio_dir / "audio_generation_report.json"
+        if report_path.exists():
+            try:
+                audio_report = json.loads(report_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                audio_report = {}
+        if audio_report.get("fallback_used"):
+            _set_step(job, "audio", "done", "Audio fallback used; video will continue without remote TTS.")
+        else:
+            _set_step(job, "audio", "done")
 
         _set_step(job, "compose", "running", "Composing video…")
         compose_video(images_dir, audio_path, video_path)
         out_video = video_path
 
-        if not req.get("skip_captions", False):
+        if not req.get("skip_captions", False) and not audio_report.get("fallback_used"):
             _set_step(job, "captions", "running", "Captions…")
             captions_path = generate_captions(audio_path, captions_dir)
             add_captions_to_video(video_path, captions_path, final_path)
             out_video = final_path
             _set_step(job, "captions", "done")
+        elif audio_report.get("fallback_used"):
+            _set_step(job, "captions", "done", "Skipped because local silent audio fallback was used")
         else:
             _set_step(job, "captions", "done", "Skipped")
 
