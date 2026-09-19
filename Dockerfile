@@ -12,7 +12,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
     XDG_CACHE_HOME=/tmp/cache \
     OMP_NUM_THREADS=1 \
     MKL_NUM_THREADS=1 \
-    OPENBLAS_NUM_THREADS=1
+    OPENBLAS_NUM_THREADS=1 \
+    MALLOC_ARENA_MAX=2 \
+    MALLOC_TRIM_THRESHOLD_=131072
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ffmpeg \
