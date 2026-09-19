@@ -17,7 +17,7 @@ def add_captions_to_video(
     captions_path: Path,
     output_path: Path,
     fontsize: int = 48,
-    font: str = "Arial-Bold",
+    font: str = "DejaVu-Sans-Bold",
     color: str = "white",
     stroke_color: str = "black",
     stroke_width: int = 2,
