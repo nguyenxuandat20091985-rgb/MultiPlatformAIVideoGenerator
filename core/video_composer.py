@@ -1,128 +1,120 @@
-"""Compose final vertical video from images + audio using FFmpeg.
-
-The composer intentionally uses FFmpeg's streaming pipeline instead of keeping all
-MoviePy image frames in Python memory. This is safer on small Render instances.
-"""
+"""Compose final video from images + audio using MoviePy (low-RAM friendly)."""
 from __future__ import annotations
 
-import subprocess
+import gc
 from pathlib import Path
 
+from PIL import Image
+from moviepy.editor import (
+    AudioFileClip,
+    ImageClip,
+    concatenate_videoclips,
+)
 
-def _probe_duration(audio_path: Path) -> float:
-    result = subprocess.run(
-        [
-            "ffprobe", "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
-            str(audio_path),
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=30,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"Unable to read audio duration: {result.stderr.strip()[-500:]}"
-        )
-    try:
-        duration = float(result.stdout.strip())
-    except ValueError as exc:
-        raise RuntimeError("Audio duration is invalid.") from exc
-    if duration <= 0:
-        raise RuntimeError("Audio duration must be greater than zero.")
-    return duration
+# Render Free ~512MB — keep frames small
+MAX_W = 720
+MAX_H = 1280
+TARGET_FPS = 24
 
 
-def _ffmpeg_concat_escape(path: Path) -> str:
-    # concat demuxer uses single quotes; escape embedded quotes/backslashes.
-    value = str(path.resolve()).replace("\\", "\\\\").replace("'", "'\\''")
-    return f"'{value}'"
+def _resize_image(src: Path, dest: Path) -> Path:
+    """Downscale to 9:16 max 720x1280 to cut memory during encode."""
+    with Image.open(src) as im:
+        im = im.convert("RGB")
+        w, h = im.size
+        scale = min(MAX_W / w, MAX_H / h, 1.0)
+        nw, nh = int(w * scale), int(h * scale)
+        nw -= nw % 2
+        nh -= nh % 2
+        if nw < 2 or nh < 2:
+            nw, nh = MAX_W, MAX_H
+        if (nw, nh) != (w, h):
+            im = im.resize((nw, nh), Image.Resampling.LANCZOS)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        im.save(dest, "JPEG", quality=85, optimize=True)
+    return dest
 
 
 def compose_video(
     images_dir: Path,
     audio_path: Path,
     output_path: Path,
-    fade_duration: float = 0.4,
+    fade_duration: float = 0.25,
 ) -> Path:
     """
-    Create a vertical MP4 while streaming image frames through FFmpeg.
-
-    The Render-safe profile is 480x854/20fps with a single encoder/filter thread.
-    This intentionally trades some encoding quality/speed for predictable RAM
-    usage on small instances and avoids worker crashes/502 responses.
+    Create a vertical video by sequencing images timed to the audio length.
+    Optimized for low-RAM hosts (Render Free, small VPS).
     """
-    del fade_duration
-
-    image_files = sorted(
-        [
-            *images_dir.glob("*.jpeg"),
-            *images_dir.glob("*.jpg"),
-            *images_dir.glob("*.png"),
-            *images_dir.glob("*.webp"),
-        ]
-    )
+    image_files = sorted(images_dir.glob("*.jpeg")) + sorted(images_dir.glob("*.jpg"))
+    if not image_files:
+        image_files = sorted(images_dir.glob("*.png"))
     if not image_files:
         raise ValueError(f"No images found in {images_dir}")
 
-    duration = _probe_duration(audio_path)
-    duration_per_image = duration / len(image_files)
-    print(f"FFmpeg compose: {len(image_files)} images, ≈ {duration_per_image:.2f}s each, total {duration:.1f}s")
+    work = images_dir / "_resized"
+    work.mkdir(exist_ok=True)
+    resized: list[Path] = []
+    for i, img in enumerate(image_files):
+        out = work / f"{i:03d}.jpg"
+        try:
+            resized.append(_resize_image(img, out))
+        except Exception as e:
+            print(f"⚠️  resize {img.name}: {e} — using original")
+            resized.append(img)
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    concat_file = output_path.parent / "images.concat.txt"
+    audio = AudioFileClip(str(audio_path))
+    duration_per_image = max(0.3, audio.duration / len(resized))
+    print(
+        f"⏱️  Each image ≈ {duration_per_image:.2f}s "
+        f"(total {audio.duration:.1f}s, {len(resized)} frames, {TARGET_FPS}fps)"
+    )
 
-    lines = []
-    for image in image_files:
-        lines.append(f"file {_ffmpeg_concat_escape(image)}")
-        lines.append(f"duration {duration_per_image:.6f}")
-    # concat requires the final file to be repeated for the final duration entry.
-    lines.append(f"file {_ffmpeg_concat_escape(image_files[-1])}")
-    concat_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-    command = [
-        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-        "-f", "concat", "-safe", "0", "-i", str(concat_file),
-        "-i", str(audio_path),
-        "-vf", "scale=480:854:force_original_aspect_ratio=decrease,"
-               "pad=480:854:(ow-iw)/2:(oh-ih)/2:color=black,"
-               "format=yuv420p",
-        "-map", "0:v:0", "-map", "1:a:0",
-        "-t", f"{duration:.3f}",
-        "-r", "20",
-        "-filter_threads", "1",
-        "-filter_complex_threads", "1",
-        "-c:v", "libx264",
-        "-preset", "ultrafast",
-        "-tune", "stillimage",
-        "-threads", "1",
-        "-crf", "30",
-        "-c:a", "aac",
-        "-b:a", "128k",
-        "-shortest",
-        str(output_path),
-    ]
-
+    clips = []
+    video = None
     try:
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=max(180, int(duration * 30) + 120),
+        for img in resized:
+            clip = (
+                ImageClip(str(img))
+                .set_duration(duration_per_image)
+                .resize(height=MAX_H)
+            )
+            clips.append(clip)
+
+        video = concatenate_videoclips(clips, method="compose")
+        video = video.set_audio(audio)
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        video.write_videofile(
+            str(output_path),
+            fps=TARGET_FPS,
+            codec="libx264",
+            audio_codec="aac",
+            preset="ultrafast",
+            bitrate="1200k",
+            audio_bitrate="96k",
+            threads=2,
+            logger=None,
+            ffmpeg_params=["-pix_fmt", "yuv420p", "-movflags", "+faststart"],
         )
-    except subprocess.TimeoutExpired as exc:
-        output_path.unlink(missing_ok=True)
-        raise RuntimeError("FFmpeg video composition timed out.") from exc
     finally:
-        concat_file.unlink(missing_ok=True)
+        for c in clips:
+            try:
+                c.close()
+            except Exception:
+                pass
+        try:
+            if video is not None:
+                video.close()
+        except Exception:
+            pass
+        try:
+            audio.close()
+        except Exception:
+            pass
+        gc.collect()
 
-    if result.returncode != 0 or not output_path.exists() or output_path.stat().st_size < 10_000:
-        output_path.unlink(missing_ok=True)
-        detail = (result.stderr or result.stdout or "unknown FFmpeg error").strip()
-        raise RuntimeError(f"FFmpeg composition failed: {detail[-1500:]}")
+    if not output_path.exists() or output_path.stat().st_size < 1000:
+        raise RuntimeError(f"Compose failed — output missing or empty: {output_path}")
 
-    print(f"Video composed → {output_path} ({output_path.stat().st_size} bytes)")
+    print(f"✅ Video composed → {output_path} ({output_path.stat().st_size // 1024} KB)")
     return output_path
