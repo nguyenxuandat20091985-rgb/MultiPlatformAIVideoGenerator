@@ -1,6 +1,8 @@
 """Compose final video from images + audio using MoviePy (low-RAM friendly)."""
 from __future__ import annotations
 
+from . import pillow_compat  # noqa: F401 — MoviePy + Pillow 10+
+
 import gc
 from pathlib import Path
 
@@ -11,7 +13,6 @@ from moviepy.editor import (
     concatenate_videoclips,
 )
 
-# Render Free ~512MB — keep frames small
 MAX_W = 720
 MAX_H = 1280
 TARGET_FPS = 24
@@ -29,7 +30,11 @@ def _resize_image(src: Path, dest: Path) -> Path:
         if nw < 2 or nh < 2:
             nw, nh = MAX_W, MAX_H
         if (nw, nh) != (w, h):
-            im = im.resize((nw, nh), Image.Resampling.LANCZOS)
+            try:
+                _resample = Image.Resampling.LANCZOS
+            except AttributeError:
+                _resample = getattr(Image, "LANCZOS", getattr(Image, "ANTIALIAS", 1))
+            im = im.resize((nw, nh), _resample)
         dest.parent.mkdir(parents=True, exist_ok=True)
         im.save(dest, "JPEG", quality=85, optimize=True)
     return dest
@@ -41,10 +46,6 @@ def compose_video(
     output_path: Path,
     fade_duration: float = 0.25,
 ) -> Path:
-    """
-    Create a vertical video by sequencing images timed to the audio length.
-    Optimized for low-RAM hosts (Render Free, small VPS).
-    """
     image_files = sorted(images_dir.glob("*.jpeg")) + sorted(images_dir.glob("*.jpg"))
     if not image_files:
         image_files = sorted(images_dir.glob("*.png"))
