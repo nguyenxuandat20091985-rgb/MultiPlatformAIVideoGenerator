@@ -1,7 +1,7 @@
 name: multiplatform_ai_video
 description: Mobile client for MultiPlatform AI Video Generator — create & publish Shorts/Reels/TikTok.
 publish_to: "none"
-version: 1.1.0+4
+version: 1.1.1+5
 
 environment:
   sdk: ">=3.2.0 <4.0.0"
