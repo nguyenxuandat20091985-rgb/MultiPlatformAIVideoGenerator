@@ -1,19 +1,16 @@
-"""Compose final video from images + audio using MoviePy (low-RAM friendly)."""
+"""Compose final video from images + audio — FFmpeg-first (low RAM)."""
 from __future__ import annotations
 
-from . import pillow_compat  # noqa: F401 — MoviePy + Pillow 10+
+from . import pillow_compat  # noqa: F401
 
 import gc
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
 from PIL import Image
-from moviepy.editor import (
-    AudioFileClip,
-    ImageClip,
-    concatenate_videoclips,
-)
 
-# Must be even for libx264 (yuv420p)
 MAX_W = 720
 MAX_H = 1280
 TARGET_FPS = 24
@@ -27,7 +24,7 @@ def _resample_filter():
 
 
 def _resize_image(src: Path, dest: Path) -> Path:
-    """Force exact MAX_W x MAX_H (both even) so libx264 never sees odd sizes."""
+    """Force exact even 720x1280 with letterbox."""
     with Image.open(src) as im:
         im = im.convert("RGB")
         w, h = im.size
@@ -37,15 +34,29 @@ def _resize_image(src: Path, dest: Path) -> Path:
         nw -= nw % 2
         nh -= nh % 2
         im = im.resize((nw, nh), _resample_filter())
-
         canvas = Image.new("RGB", (MAX_W, MAX_H), (0, 0, 0))
-        ox = (MAX_W - nw) // 2
-        oy = (MAX_H - nh) // 2
-        canvas.paste(im, (ox, oy))
-
+        canvas.paste(im, ((MAX_W - nw) // 2, (MAX_H - nh) // 2))
         dest.parent.mkdir(parents=True, exist_ok=True)
         canvas.save(dest, "JPEG", quality=85, optimize=True)
     return dest
+
+
+def _probe_duration(audio_path: Path) -> float:
+    r = subprocess.run(
+        [
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(audio_path),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    try:
+        return max(0.5, float((r.stdout or "").strip()))
+    except ValueError:
+        return 15.0
 
 
 def compose_video(
@@ -54,6 +65,7 @@ def compose_video(
     output_path: Path,
     fade_duration: float = 0.25,
 ) -> Path:
+    """Slideshow via FFmpeg only (no MoviePy encode — much less RAM)."""
     image_files = sorted(images_dir.glob("*.jpeg")) + sorted(images_dir.glob("*.jpg"))
     if not image_files:
         image_files = sorted(images_dir.glob("*.png"))
@@ -68,65 +80,61 @@ def compose_video(
         try:
             resized.append(_resize_image(img, out))
         except Exception as e:
-            print(f"⚠️  resize {img.name}: {e} — using original")
+            print(f"⚠️  resize {img.name}: {e}")
             resized.append(img)
 
-    audio = AudioFileClip(str(audio_path))
-    duration_per_image = max(0.3, audio.duration / len(resized))
+    duration = _probe_duration(audio_path)
+    per = max(0.3, duration / len(resized))
     print(
-        f"⏱️  Each image ≈ {duration_per_image:.2f}s "
-        f"(total {audio.duration:.1f}s, {len(resized)} frames, {TARGET_FPS}fps, "
-        f"{MAX_W}x{MAX_H})"
+        f"⏱️  FFmpeg slideshow: {len(resized)} frames × {per:.2f}s "
+        f"(audio {duration:.1f}s) @ {MAX_W}x{MAX_H}"
     )
 
-    clips = []
-    video = None
-    try:
-        for img in resized:
-            clip = (
-                ImageClip(str(img))
-                .set_duration(duration_per_image)
-                .resize(newsize=(MAX_W, MAX_H))
-            )
-            clips.append(clip)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if output_path.exists():
+        output_path.unlink()
 
-        video = concatenate_videoclips(clips, method="compose")
-        if video.w % 2 or video.h % 2:
-            video = video.resize(newsize=(MAX_W, MAX_H))
-        video = video.set_audio(audio)
+    with tempfile.TemporaryDirectory() as td:
+        td_path = Path(td)
+        local_imgs = []
+        for i, p in enumerate(resized):
+            dest = td_path / f"f{i:03d}.jpg"
+            shutil.copy2(p, dest)
+            local_imgs.append(dest)
 
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        video.write_videofile(
+        list_file = td_path / "list.txt"
+        with open(list_file, "w", encoding="utf-8") as f:
+            for p in local_imgs:
+                f.write(f"file '{p.name}'\n")
+                f.write(f"duration {per:.4f}\n")
+            f.write(f"file '{local_imgs[-1].name}'\n")
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", str(list_file),
+            "-i", str(audio_path),
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-tune", "stillimage",
+            "-pix_fmt", "yuv420p",
+            "-r", str(TARGET_FPS),
+            "-c:a", "aac",
+            "-b:a", "96k",
+            "-shortest",
+            "-movflags", "+faststart",
             str(output_path),
-            fps=TARGET_FPS,
-            codec="libx264",
-            audio_codec="aac",
-            preset="ultrafast",
-            bitrate="1200k",
-            audio_bitrate="96k",
-            threads=2,
-            logger=None,
-            ffmpeg_params=["-pix_fmt", "yuv420p", "-movflags", "+faststart"],
-        )
-    finally:
-        for c in clips:
-            try:
-                c.close()
-            except Exception:
-                pass
-        try:
-            if video is not None:
-                video.close()
-        except Exception:
-            pass
-        try:
-            audio.close()
-        except Exception:
-            pass
-        gc.collect()
+        ]
+        print("▶️ ", " ".join(cmd[:8]), "...")
+        proc = subprocess.run(cmd, cwd=str(td_path), capture_output=True, text=True)
+        if proc.returncode != 0:
+            err = (proc.stderr or proc.stdout or "")[-1500:]
+            raise RuntimeError(f"FFmpeg compose failed ({proc.returncode}):\n{err}")
 
+    gc.collect()
     if not output_path.exists() or output_path.stat().st_size < 1000:
-        raise RuntimeError(f"Compose failed — output missing or empty: {output_path}")
+        raise RuntimeError(f"Compose failed — empty output: {output_path}")
 
     print(f"✅ Video composed → {output_path} ({output_path.stat().st_size // 1024} KB)")
     return output_path
