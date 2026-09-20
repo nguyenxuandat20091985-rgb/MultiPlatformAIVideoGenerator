@@ -1,9 +1,10 @@
-"""Compose final video from images + audio — FFmpeg-first (low RAM)."""
+"""Compose final video from images + audio — FFmpeg-only (Render Free friendly)."""
 from __future__ import annotations
 
 from . import pillow_compat  # noqa: F401
 
 import gc
+import os
 import shutil
 import subprocess
 import tempfile
@@ -11,9 +12,10 @@ from pathlib import Path
 
 from PIL import Image
 
-MAX_W = 720
-MAX_H = 1280
-TARGET_FPS = 24
+MAX_W = int(os.getenv("VIDEO_WIDTH", "540"))
+MAX_H = int(os.getenv("VIDEO_HEIGHT", "960"))
+TARGET_FPS = int(os.getenv("VIDEO_FPS", "20"))
+MAX_FRAMES = int(os.getenv("VIDEO_MAX_FRAMES", "5"))
 
 
 def _resample_filter():
@@ -23,21 +25,23 @@ def _resample_filter():
         return getattr(Image, "LANCZOS", getattr(Image, "ANTIALIAS", 1))
 
 
+def _even(n: int) -> int:
+    n = max(2, int(n))
+    return n - (n % 2)
+
+
 def _resize_image(src: Path, dest: Path) -> Path:
-    """Force exact even 720x1280 with letterbox."""
+    w0, h0 = _even(MAX_W), _even(MAX_H)
     with Image.open(src) as im:
         im = im.convert("RGB")
         w, h = im.size
-        scale = min(MAX_W / w, MAX_H / h)
-        nw = max(2, int(w * scale))
-        nh = max(2, int(h * scale))
-        nw -= nw % 2
-        nh -= nh % 2
+        scale = min(w0 / w, h0 / h)
+        nw, nh = _even(w * scale), _even(h * scale)
         im = im.resize((nw, nh), _resample_filter())
-        canvas = Image.new("RGB", (MAX_W, MAX_H), (0, 0, 0))
-        canvas.paste(im, ((MAX_W - nw) // 2, (MAX_H - nh) // 2))
+        canvas = Image.new("RGB", (w0, h0), (0, 0, 0))
+        canvas.paste(im, ((w0 - nw) // 2, (h0 - nh) // 2))
         dest.parent.mkdir(parents=True, exist_ok=True)
-        canvas.save(dest, "JPEG", quality=85, optimize=True)
+        canvas.save(dest, "JPEG", quality=80, optimize=True)
     return dest
 
 
@@ -51,12 +55,11 @@ def _probe_duration(audio_path: Path) -> float:
         ],
         capture_output=True,
         text=True,
-        check=False,
     )
     try:
         return max(0.5, float((r.stdout or "").strip()))
     except ValueError:
-        return 15.0
+        return 12.0
 
 
 def compose_video(
@@ -65,12 +68,15 @@ def compose_video(
     output_path: Path,
     fade_duration: float = 0.25,
 ) -> Path:
-    """Slideshow via FFmpeg only (no MoviePy encode — much less RAM)."""
     image_files = sorted(images_dir.glob("*.jpeg")) + sorted(images_dir.glob("*.jpg"))
     if not image_files:
         image_files = sorted(images_dir.glob("*.png"))
     if not image_files:
         raise ValueError(f"No images found in {images_dir}")
+
+    if len(image_files) > MAX_FRAMES:
+        step = len(image_files) / MAX_FRAMES
+        image_files = [image_files[int(i * step)] for i in range(MAX_FRAMES)]
 
     work = images_dir / "_resized"
     work.mkdir(exist_ok=True)
@@ -84,10 +90,11 @@ def compose_video(
             resized.append(img)
 
     duration = _probe_duration(audio_path)
-    per = max(0.3, duration / len(resized))
+    per = max(0.4, duration / len(resized))
+    w0, h0 = _even(MAX_W), _even(MAX_H)
     print(
-        f"⏱️  FFmpeg slideshow: {len(resized)} frames × {per:.2f}s "
-        f"(audio {duration:.1f}s) @ {MAX_W}x{MAX_H}"
+        f"⏱️  FFmpeg: {len(resized)} frames × {per:.2f}s "
+        f"(audio {duration:.1f}s) {w0}x{h0} @{TARGET_FPS}fps"
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -111,8 +118,7 @@ def compose_video(
 
         cmd = [
             "ffmpeg", "-y",
-            "-f", "concat",
-            "-safe", "0",
+            "-f", "concat", "-safe", "0",
             "-i", str(list_file),
             "-i", str(audio_path),
             "-c:v", "libx264",
@@ -120,21 +126,21 @@ def compose_video(
             "-tune", "stillimage",
             "-pix_fmt", "yuv420p",
             "-r", str(TARGET_FPS),
-            "-c:a", "aac",
-            "-b:a", "96k",
+            "-s", f"{w0}x{h0}",
+            "-c:a", "aac", "-b:a", "64k",
             "-shortest",
             "-movflags", "+faststart",
+            "-threads", "1",
             str(output_path),
         ]
-        print("▶️ ", " ".join(cmd[:8]), "...")
         proc = subprocess.run(cmd, cwd=str(td_path), capture_output=True, text=True)
         if proc.returncode != 0:
-            err = (proc.stderr or proc.stdout or "")[-1500:]
+            err = (proc.stderr or proc.stdout or "")[-2000:]
             raise RuntimeError(f"FFmpeg compose failed ({proc.returncode}):\n{err}")
 
     gc.collect()
-    if not output_path.exists() or output_path.stat().st_size < 1000:
+    if not output_path.exists() or output_path.stat().st_size < 500:
         raise RuntimeError(f"Compose failed — empty output: {output_path}")
 
-    print(f"✅ Video composed → {output_path} ({output_path.stat().st_size // 1024} KB)")
+    print(f"✅ Video → {output_path} ({output_path.stat().st_size // 1024} KB)")
     return output_path

@@ -20,8 +20,10 @@ def generate_image_prompts(script_path: Path, output_path: Path) -> Dict[str, An
     scenes: List[Dict] = script.get("scenes", [])
     if not scenes:
         raise ValueError("No scenes found in script.")
-
-    client = Groq(api_key=settings.GROQ_API_KEY)
+    # Free-tier hosts: keep pipeline light
+    MAX_SCENES = 5
+    if len(scenes) > MAX_SCENES:
+        scenes = scenes[:MAX_SCENES]
 
     scene_descriptions = "\n".join(
         f"Scene {s['scene_number']}: {s.get('visual_description', s.get('voiceover_text', ''))}"
@@ -35,42 +37,44 @@ Given the following short-form video scenes, create one highly detailed image pr
 Scenes:
 {scene_descriptions}
 
-Return ONLY valid JSON:
+Return ONLY valid JSON in this shape:
 {{
   "prompts": [
     {{
       "scene_number": 1,
-      "subject": "main subject",
-      "artform": ["cinematic photography", "digital art"],
-      "device": ["Canon EOS R5"],
-      "photography_style": ["dramatic lighting", "shallow depth of field"],
+      "subject": "...",
+      "artform": ["photography"],
+      "device": ["camera"],
+      "photography_style": ["cinematic"],
       "scene_details": {{
-        "lighting": ["golden hour", "rim light"],
-        "composition": ["rule of thirds", "centered subject"]
+        "lighting": ["soft natural light"],
+        "composition": ["centered, vertical 9:16"]
       }},
-      "additional_details": "vertical 9:16 composition, high detail, vibrant colors, no text, no watermark"
+      "additional_details": "vertical 9:16, high quality, no text overlay"
     }}
   ]
 }}
-
 Rules:
 - Exactly one prompt object per scene.
-- Always emphasize vertical 9:16 framing suitable for mobile Shorts/Reels/TikTok.
-- Avoid any text, logos or watermarks in the image description.
+- Vertical 9:16 friendly composition.
+- No on-image text or watermarks.
 """
 
+    client = Groq(api_key=settings.GROQ_API_KEY)
     response = client.chat.completions.create(
         model=settings.GROQ_MODEL,
         messages=[
-            {"role": "system", "content": "You output only valid JSON."},
             {"role": "user", "content": prompt},
         ],
-        temperature=0.7,
-        max_tokens=3000,
+        temperature=0.4,
         response_format={"type": "json_object"},
     )
+    content = response.choices[0].message.content or "{}"
+    data = json.loads(content)
 
-    data = json.loads(response.choices[0].message.content)
+    # Cap prompts as well
+    prompts = data.get("prompts", [])[:MAX_SCENES]
+    data["prompts"] = prompts
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
