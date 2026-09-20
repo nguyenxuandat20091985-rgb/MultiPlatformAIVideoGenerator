@@ -145,40 +145,41 @@ class ApiService {
   }
 
   Future<Job> getJob(String jobId) async {
-    return _withFriendlyErrors(
-      () async {
-        // Render can briefly return 502/503/504 while a worker is waking or
-        // restarting. Do not turn a transient gateway error into a dead job.
-        const retryable = {502, 503, 504};
-        const delays = [
-          Duration(seconds: 2),
-          Duration(seconds: 5),
-          Duration(seconds: 10),
-        ];
-        http.Response? last;
-        for (var attempt = 0; attempt < 4; attempt++) {
-          final res = await http.get(_u('/api/v1/jobs/$jobId'));
-          if (res.statusCode == 200) {
+    Object? lastErr;
+    for (var attempt = 0; attempt < 5; attempt++) {
+      try {
+        return await _withFriendlyErrors(
+          () async {
+            final res = await http.get(_u('/api/v1/jobs/$jobId'));
+            if (res.statusCode == 404) {
+              throw ApiException(
+                'Job không còn trên server (có thể Render restart do hết RAM khi ghép video).\n'
+                'Thử tạo lại video, hoặc bỏ phụ đề để nhẹ hơn.',
+              );
+            }
+            if (res.statusCode == 502 || res.statusCode == 503) {
+              throw ApiException('Server tạm thời quá tải (${res.statusCode})');
+            }
+            if (res.statusCode != 200) {
+              throw ApiException('Lỗi trạng thái job (${res.statusCode})');
+            }
             return Job.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
-          }
-          if (res.statusCode == 404) {
-            throw ApiException('Không tìm thấy job $jobId');
-          }
-          last = res;
-          if (!retryable.contains(res.statusCode) || attempt == 3) break;
-          await Future<void>.delayed(delays[attempt]);
-        }
-        final status = last?.statusCode ?? 0;
-        if (retryable.contains(status)) {
-          throw ApiException(
-            'Server đang khởi động lại (HTTP $status). '
-            'Job $jobId vẫn được giữ trên màn hình; hãy kiểm tra lại sau vài giây.',
-          );
-        }
-        throw ApiException('Lỗi trạng thái job ($status)');
-      },
-      timeout: const Duration(seconds: 75),
-    );
+          },
+          timeout: const Duration(seconds: 45),
+        );
+      } catch (e) {
+        lastErr = e;
+        final msg = e.toString();
+        final transient = msg.contains('502') ||
+            msg.contains('503') ||
+            msg.contains('quá tải') ||
+            msg.contains('Timeout') ||
+            msg.contains('Hết thời gian');
+        if (!transient || attempt == 4) rethrow;
+        await Future<void>.delayed(Duration(seconds: 3 * (attempt + 1)));
+      }
+    }
+    throw lastErr ?? ApiException('Không lấy được trạng thái job');
   }
 
   String videoAbsoluteUrl(String? relativeOrAbsolute) {
