@@ -13,30 +13,38 @@ from moviepy.editor import (
     concatenate_videoclips,
 )
 
+# Must be even for libx264 (yuv420p)
 MAX_W = 720
 MAX_H = 1280
 TARGET_FPS = 24
 
 
+def _resample_filter():
+    try:
+        return Image.Resampling.LANCZOS
+    except AttributeError:
+        return getattr(Image, "LANCZOS", getattr(Image, "ANTIALIAS", 1))
+
+
 def _resize_image(src: Path, dest: Path) -> Path:
-    """Downscale to 9:16 max 720x1280 to cut memory during encode."""
+    """Force exact MAX_W x MAX_H (both even) so libx264 never sees odd sizes."""
     with Image.open(src) as im:
         im = im.convert("RGB")
         w, h = im.size
-        scale = min(MAX_W / w, MAX_H / h, 1.0)
-        nw, nh = int(w * scale), int(h * scale)
+        scale = min(MAX_W / w, MAX_H / h)
+        nw = max(2, int(w * scale))
+        nh = max(2, int(h * scale))
         nw -= nw % 2
         nh -= nh % 2
-        if nw < 2 or nh < 2:
-            nw, nh = MAX_W, MAX_H
-        if (nw, nh) != (w, h):
-            try:
-                _resample = Image.Resampling.LANCZOS
-            except AttributeError:
-                _resample = getattr(Image, "LANCZOS", getattr(Image, "ANTIALIAS", 1))
-            im = im.resize((nw, nh), _resample)
+        im = im.resize((nw, nh), _resample_filter())
+
+        canvas = Image.new("RGB", (MAX_W, MAX_H), (0, 0, 0))
+        ox = (MAX_W - nw) // 2
+        oy = (MAX_H - nh) // 2
+        canvas.paste(im, (ox, oy))
+
         dest.parent.mkdir(parents=True, exist_ok=True)
-        im.save(dest, "JPEG", quality=85, optimize=True)
+        canvas.save(dest, "JPEG", quality=85, optimize=True)
     return dest
 
 
@@ -67,7 +75,8 @@ def compose_video(
     duration_per_image = max(0.3, audio.duration / len(resized))
     print(
         f"⏱️  Each image ≈ {duration_per_image:.2f}s "
-        f"(total {audio.duration:.1f}s, {len(resized)} frames, {TARGET_FPS}fps)"
+        f"(total {audio.duration:.1f}s, {len(resized)} frames, {TARGET_FPS}fps, "
+        f"{MAX_W}x{MAX_H})"
     )
 
     clips = []
@@ -77,11 +86,13 @@ def compose_video(
             clip = (
                 ImageClip(str(img))
                 .set_duration(duration_per_image)
-                .resize(height=MAX_H)
+                .resize(newsize=(MAX_W, MAX_H))
             )
             clips.append(clip)
 
         video = concatenate_videoclips(clips, method="compose")
+        if video.w % 2 or video.h % 2:
+            video = video.resize(newsize=(MAX_W, MAX_H))
         video = video.set_audio(audio)
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
