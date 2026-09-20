@@ -31,6 +31,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _youtube = true;
   bool _tiktok = false;
   bool _facebook = false;
+  bool _skipCaptions = true;
   bool _busy = false;
   bool _pinging = false;
   String? _backendError;
@@ -140,6 +141,7 @@ class _HomeScreenState extends State<HomeScreen> {
         cta: _ctaCtrl.text.trim().isEmpty ? 'Follow for more!' : _ctaCtrl.text.trim(),
         tags: tags,
         platforms: platforms,
+        skipCaptions: _skipCaptions,
       );
 
       if (!mounted) return;
@@ -216,8 +218,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Máy thật: IP LAN máy tính chạy FastAPI (cùng Wi‑Fi).\n'
-                      'Emulator: http://10.0.2.2:8000',
+                      'Nhà máy (server): URL Render hoặc Cloudflare Tunnel.\n'
+                      'Ví dụ: https://xxx.onrender.com hoặc https://xxx.trycloudflare.com',
                       style: theme.textTheme.bodySmall
                           ?.copyWith(color: Colors.grey.shade600),
                     ),
@@ -225,7 +227,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     TextField(
                       controller: _apiUrlCtrl,
                       decoration: InputDecoration(
-                        labelText: 'http://192.168.x.x:8000',
+                        labelText: 'https://…',
                         border: const OutlineInputBorder(),
                         prefixIcon: const Icon(Icons.link),
                         suffixIcon: IconButton(
@@ -269,7 +271,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
-
             if (_backendError != null) ...[
               const SizedBox(height: 10),
               Card(
@@ -299,11 +300,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: const ListTile(
                   dense: true,
                   leading: Icon(Icons.check_circle, color: Colors.green),
-                  title: Text('Đã kết nối API thành công'),
+                  title: Text('Đã kết nối nhà máy (API) thành công'),
                 ),
               ),
             ],
-
             const SizedBox(height: 16),
             Text('Tạo video ngắn', style: theme.textTheme.titleLarge),
             const SizedBox(height: 12),
@@ -384,7 +384,14 @@ class _HomeScreenState extends State<HomeScreen> {
               value: _facebook,
               onChanged: (v) => setState(() => _facebook = v),
             ),
-            const SizedBox(height: 24),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Bỏ phụ đề (nhẹ hơn, ít lỗi RAM)'),
+              subtitle: const Text('Nên bật trên Render Free / máy yếu'),
+              value: _skipCaptions,
+              onChanged: (v) => setState(() => _skipCaptions = v),
+            ),
+            const SizedBox(height: 12),
             SizedBox(
               height: 52,
               child: FilledButton.icon(
@@ -407,7 +414,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 12),
             Text(
-              'Tạo video có thể mất vài phút (AI + TTS + encode).',
+              'Nhà máy (server) làm video; app chỉ ra lệnh và xem kết quả.',
               style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
               textAlign: TextAlign.center,
             ),
