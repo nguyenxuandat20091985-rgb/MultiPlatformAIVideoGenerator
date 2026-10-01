@@ -37,6 +37,22 @@ python api.py
 
 The existing Flutter mobile app calls the FastAPI backend and can continue using the same API endpoint.
 
+## Factory engine stack
+
+The project is designed as a local-first video factory. FFmpeg is the reliable baseline; optional engines can be enabled without making them mandatory.
+
+- **AI writing:** Groq + deterministic local fallback.
+- **Visual generation:** OpenAI Images / Gemini / OpenRouter with key failover + local Pillow fallback.
+- **AI video generation:** optional ComfyUI adapter for local Wan/LTX/AnimateDiff workflows.
+- **Programmatic composition:** FFmpeg baseline + optional OpenCut and Remotion adapters.
+- **Voice:** Kokoro API -> Vietnamese Edge-TTS -> local silent audio fallback.
+- **Captions:** Whisper word timestamps.
+- **QA:** final MP4 validation before publishing.
+- **Publishing:** YouTube / TikTok / Facebook adapters.
+- **Worker:** heavy rendering can run on the connected computer instead of a small web service.
+
+VIDEO_RENDERER=ffmpeg is the safe default. OpenCut and Remotion are optional and automatically fall back to FFmpeg when their local projects are unavailable.
+
 ## Features
 
 - Script generation with Groq
