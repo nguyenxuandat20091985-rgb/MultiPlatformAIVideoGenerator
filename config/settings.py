@@ -124,9 +124,9 @@ class Settings:
 
     @classmethod
     def validate_generation(cls) -> None:
-        missing = []
-        if not cls.GROQ_API_KEY:
-            missing.append("GROQ_API_KEY")
+        # Video rendering has local fallbacks for script, images and audio.
+        # API keys improve quality but are not allowed to make the factory unusable.
+        return
 
         image_provider_configured = bool(
             cls.OPENAI_API_KEY
