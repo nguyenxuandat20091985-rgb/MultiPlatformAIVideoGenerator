@@ -60,17 +60,41 @@ Rules:
 - No on-image text or watermarks.
 """
 
-    client = Groq(api_key=settings.GROQ_API_KEY)
-    response = client.chat.completions.create(
-        model=settings.GROQ_MODEL,
-        messages=[
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.4,
-        response_format={"type": "json_object"},
-    )
-    content = response.choices[0].message.content or "{}"
-    data = json.loads(content)
+    if settings.GROQ_API_KEY:
+        try:
+            client = Groq(api_key=settings.GROQ_API_KEY)
+            response = client.chat.completions.create(
+                model=settings.GROQ_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.4,
+                response_format={"type": "json_object"},
+            )
+            content = response.choices[0].message.content or "{}"
+            data = json.loads(content)
+        except Exception as exc:
+            print(f"Groq image-prompt generation failed ({exc}); using local prompts.")
+            data = {}
+    else:
+        data = {}
+
+    if not data.get("prompts"):
+        data = {
+            "prompts": [
+                {
+                    "scene_number": s["scene_number"],
+                    "subject": s.get("visual_description", s.get("voiceover_text", "vertical video scene")),
+                    "artform": ["cinematic photography"],
+                    "device": ["digital cinema camera"],
+                    "photography_style": ["cinematic", "documentary"],
+                    "scene_details": {
+                        "lighting": ["natural dramatic lighting"],
+                        "composition": ["vertical 9:16", "strong subject framing"],
+                    },
+                    "additional_details": "high detail, realistic, vertical 9:16, no text, no watermark",
+                }
+                for s in scenes
+            ]
+        }
 
     # Cap prompts as well
     prompts = data.get("prompts", [])[:MAX_SCENES]
