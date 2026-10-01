@@ -38,7 +38,7 @@ def _generate_kokoro(text: str, output_path: Path, voice: str = "am_michael") ->
 
 async def _generate_edge(text: str, output_path: Path) -> bool:
     try:
-        communicate = edge_tts.Communicate(text, "en-US-AriaNeural")
+        communicate = edge_tts.Communicate(text, "vi-VN-HoaiMyNeural")
         await communicate.save(str(output_path))
         print(f"✅ Audio generated with Edge-TTS → {output_path}")
         return True
