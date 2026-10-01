@@ -104,6 +104,14 @@ class Settings:
     WORKER_MODE: bool = os.getenv("WORKER_MODE", "0").strip().lower() in ("1", "true", "yes")
     WORKER_TOKEN: str = os.getenv("WORKER_TOKEN", "")
 
+    # Optional local AI/render engines. FFmpeg remains the safe default.
+    VIDEO_RENDERER: str = os.getenv("VIDEO_RENDERER", "ffmpeg")
+    OPENCUT_PROJECT: str = os.getenv("OPENCUT_PROJECT", "")
+    OPENCUT_CWD: str = os.getenv("OPENCUT_CWD", ".")
+    REMOTION_PROJECT_DIR: str = os.getenv("REMOTION_PROJECT_DIR", "")
+    REMOTION_COMPOSITION: str = os.getenv("REMOTION_COMPOSITION", "FactoryVideo")
+    COMFYUI_URL: str = os.getenv("COMFYUI_URL", "http://127.0.0.1:8188")
+
     # Runtime
     DEFAULT_VIDEO_STYLE: str = os.getenv("DEFAULT_VIDEO_STYLE", "educational")
     DEFAULT_TARGET_AUDIENCE: str = os.getenv("DEFAULT_TARGET_AUDIENCE", "general")
