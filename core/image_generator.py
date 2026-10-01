@@ -321,11 +321,8 @@ def generate_images(image_prompts_path: Path, output_dir: Path) -> dict[str, Any
         if p in provider_keys and provider_keys[p]
     ]
     if not available:
-        raise RuntimeError(
-            "No image provider API key is configured. "
-            "Set OPENAI_API_KEY, GEMINI_API_KEY, or "
-            "OPENROUTER_API_KEY (including their _2/_3/_4 slots)."
-        )
+        print("⚠️ No remote image provider configured; using local visual fallback for all scenes.")
+        available = []
 
     generated = 0
     fallback_count = 0
