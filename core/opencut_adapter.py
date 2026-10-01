@@ -24,3 +24,18 @@ def render(project: str, output: Path, cwd: Path) -> Path:
     output.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, output)
     return output
+
+
+def render_from_assets(images_dir: Path, audio_path: Path, output: Path) -> Path:
+    """Render an installed OpenCut project; copy current factory assets into its input area."""
+    project = os.getenv("OPENCUT_PROJECT", "").strip()
+    cwd = Path(os.getenv("OPENCUT_CWD", ".")).resolve()
+    if not project:
+        raise OpenCutError("OPENCUT_PROJECT is empty.")
+    input_dir = cwd / "factory-input"
+    input_dir.mkdir(parents=True, exist_ok=True)
+    for source in sorted(images_dir.iterdir()):
+        if source.is_file() and source.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}:
+            shutil.copy2(source, input_dir / source.name)
+    shutil.copy2(audio_path, input_dir / "voiceover.mp3")
+    return render(project, output, cwd)
