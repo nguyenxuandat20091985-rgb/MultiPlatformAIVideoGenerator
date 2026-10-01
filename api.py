@@ -24,6 +24,7 @@ import requests
 
 from config.settings import settings
 from core.video_qa import validate_final_video
+from core.renderer_router import render_video
 from core import (
     generate_script,
     save_script,
@@ -31,7 +32,6 @@ from core import (
     generate_images,
     generate_audio,
     generate_captions,
-    compose_video,
     add_captions_to_video,
 )
 from publishers import list_available_publishers, publish_to_platforms
@@ -322,7 +322,7 @@ def _run_pipeline_impl(job_id: str) -> None:
         _release_memory()
 
         _set_step(job, "compose", "running", "Composing video…")
-        compose_video(images_dir, audio_path, video_path)
+        render_video(images_dir, audio_path, video_path)
         _release_memory()
         out_video = video_path
 
@@ -460,6 +460,12 @@ def health():
         "worker_max_concurrency": WORKER_MAX_CONCURRENCY,
         "platforms": list_available_publishers(),
         "output_dir": str(OUTPUT_ROOT),
+        "rendering": {
+            "renderer": settings.VIDEO_RENDERER,
+            "opencut_configured": bool(settings.OPENCUT_PROJECT),
+            "remotion_configured": bool(settings.REMOTION_PROJECT_DIR),
+            "comfyui_url": settings.COMFYUI_URL,
+        },
         "generation": {
             "text_provider": "groq",
             "image_provider_order": settings.image_provider_order(),
