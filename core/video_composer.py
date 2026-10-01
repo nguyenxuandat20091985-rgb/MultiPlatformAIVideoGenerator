@@ -12,10 +12,10 @@ from pathlib import Path
 
 from PIL import Image
 
-MAX_W = int(os.getenv("VIDEO_WIDTH", "540"))
-MAX_H = int(os.getenv("VIDEO_HEIGHT", "960"))
-TARGET_FPS = int(os.getenv("VIDEO_FPS", "20"))
-MAX_FRAMES = int(os.getenv("VIDEO_MAX_FRAMES", "5"))
+MAX_W = int(os.getenv("VIDEO_WIDTH", "720"))
+MAX_H = int(os.getenv("VIDEO_HEIGHT", "1280"))
+TARGET_FPS = int(os.getenv("VIDEO_FPS", "24"))
+MAX_FRAMES = int(os.getenv("VIDEO_MAX_FRAMES", "12"))
 
 
 def _resample_filter():
